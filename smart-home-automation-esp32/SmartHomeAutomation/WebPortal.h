@@ -46,7 +46,7 @@ class WebPortal {
   String formatEpochClock(uint64_t epoch) const;
   void setCommandContext(uint8_t clientId);
   void clearCommandContext();
-  String activeCommandMac() const;
+  String activeCommandMac();
   String resolveClientMac(uint8_t clientId);
   static String formatMac(const uint8_t mac[6]);
   static IPAddress ipFromAddr(uint32_t addr, bool reverseOrder);
@@ -71,4 +71,5 @@ class WebPortal {
   bool commandContextActive_ = false;
   TaskHandle_t commandContextTask_ = nullptr;
   String commandContextMac_ = "SYSTEM";
+  uint32_t commandContextExpiryMs_ = 0;
 };

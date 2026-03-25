@@ -154,9 +154,16 @@ void WebPortal::handleWsEvent(uint8_t clientId, WStype_t type, uint8_t *payload,
 }
 
 void WebPortal::onClientConnected(uint8_t clientId) {
+  const String detectedMac = resolveClientMac(clientId);
   if (clientId < clients_.size()) {
-    clients_[clientId] = true;
-    clientMacs_[clientId] = resolveClientMac(clientId);
+    if (contextMutex_ && xSemaphoreTake(contextMutex_, pdMS_TO_TICKS(40)) == pdTRUE) {
+      clients_[clientId] = true;
+      clientMacs_[clientId] = detectedMac;
+      xSemaphoreGive(contextMutex_);
+    } else {
+      clients_[clientId] = true;
+      clientMacs_[clientId] = detectedMac;
+    }
   }
   connectedClients_ = recalcConnectedClients();
   updateClientCountInEngine();
@@ -187,9 +194,16 @@ void WebPortal::onClientConnected(uint8_t clientId) {
 void WebPortal::onClientDisconnected(uint8_t clientId) {
   String mac = "UNKNOWN";
   if (clientId < clients_.size()) {
-    clients_[clientId] = false;
-    mac = clientMacs_[clientId].isEmpty() ? "UNKNOWN" : clientMacs_[clientId];
-    clientMacs_[clientId] = "";
+    if (contextMutex_ && xSemaphoreTake(contextMutex_, pdMS_TO_TICKS(40)) == pdTRUE) {
+      clients_[clientId] = false;
+      mac = clientMacs_[clientId].isEmpty() ? "UNKNOWN" : clientMacs_[clientId];
+      clientMacs_[clientId] = "";
+      xSemaphoreGive(contextMutex_);
+    } else {
+      clients_[clientId] = false;
+      mac = clientMacs_[clientId].isEmpty() ? "UNKNOWN" : clientMacs_[clientId];
+      clientMacs_[clientId] = "";
+    }
   }
   connectedClients_ = recalcConnectedClients();
   updateClientCountInEngine();
@@ -437,6 +451,9 @@ void WebPortal::setCommandContext(uint8_t clientId) {
   commandContextActive_ = true;
   commandContextTask_ = xTaskGetCurrentTaskHandle();
   commandContextMac_ = mac;
+  // Keep context briefly so control-task events generated right after a command
+  // can still inherit the triggering client MAC in logs.
+  commandContextExpiryMs_ = millis() + 1600;
   xSemaphoreGive(contextMutex_);
 }
 
@@ -447,13 +464,13 @@ void WebPortal::clearCommandContext() {
   if (xSemaphoreTake(contextMutex_, pdMS_TO_TICKS(50)) != pdTRUE) {
     return;
   }
-  commandContextActive_ = false;
+  // Do not clear MAC context immediately; expiry is handled in activeCommandMac().
+  // This preserves MAC attribution for deferred events emitted from other tasks.
   commandContextTask_ = nullptr;
-  commandContextMac_ = "SYSTEM";
   xSemaphoreGive(contextMutex_);
 }
 
-String WebPortal::activeCommandMac() const {
+String WebPortal::activeCommandMac() {
   if (!contextMutex_) {
     return "SYSTEM";
   }
@@ -461,8 +478,23 @@ String WebPortal::activeCommandMac() const {
   if (xSemaphoreTake(contextMutex_, pdMS_TO_TICKS(10)) != pdTRUE) {
     return mac;
   }
-  if (commandContextActive_ && commandContextTask_ == xTaskGetCurrentTaskHandle() && !commandContextMac_.isEmpty()) {
+  const uint32_t nowMs = millis();
+  const bool expired = commandContextActive_ && static_cast<int32_t>(nowMs - commandContextExpiryMs_) > 0;
+  if (expired) {
+    commandContextActive_ = false;
+    commandContextMac_ = "SYSTEM";
+    commandContextExpiryMs_ = 0;
+  }
+  if (commandContextActive_ && !commandContextMac_.isEmpty()) {
     mac = commandContextMac_;
+  } else {
+    // Fallback to any known connected client MAC when context is inactive.
+    for (size_t i = 0; i < clients_.size(); ++i) {
+      if (clients_[i] && !clientMacs_[i].isEmpty()) {
+        mac = clientMacs_[i];
+        break;
+      }
+    }
   }
   xSemaphoreGive(contextMutex_);
   return mac;
@@ -590,6 +622,15 @@ String WebPortal::handleSetTime(const String &body) {
 
 uint16_t WebPortal::recalcConnectedClients() {
   uint16_t count = 0;
+  if (contextMutex_ && xSemaphoreTake(contextMutex_, pdMS_TO_TICKS(25)) == pdTRUE) {
+    for (bool active : clients_) {
+      if (active) {
+        ++count;
+      }
+    }
+    xSemaphoreGive(contextMutex_);
+    return count;
+  }
   for (bool active : clients_) {
     if (active) {
       ++count;
