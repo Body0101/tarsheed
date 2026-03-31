@@ -350,6 +350,79 @@
       transition: background 180ms ease;
     }
 
+    /* PIR UI START */
+    .mapping-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .mapping-row {
+      display: grid;
+      grid-template-columns: minmax(80px, 110px) repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      align-items: center;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px;
+      background: color-mix(in srgb, var(--panel-solid) 80%, transparent);
+    }
+
+    .mapping-label {
+      font-weight: 700;
+    }
+
+    .mapping-check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 0.84rem;
+    }
+
+    .mapping-check input {
+      width: auto;
+      accent-color: var(--accent);
+      transform: scale(1.1);
+    }
+    /* PIR UI END */
+
+    /* SENSOR FLASH START */
+    .sensor-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .sensor-card {
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      padding: 12px;
+      background: #777;
+      color: #fff;
+      min-height: 90px;
+      display: grid;
+      align-content: center;
+      gap: 6px;
+      transition: background 220ms ease, transform 180ms ease, box-shadow 220ms ease;
+    }
+
+    .sensor-card.active {
+      background: #00c853;
+      box-shadow: 0 12px 24px rgba(0, 200, 83, 0.24);
+      transform: translateY(-1px);
+    }
+
+    .sensor-card .sensor-name {
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .sensor-card .sensor-meta {
+      font-size: 0.8rem;
+      color: rgba(255, 255, 255, 0.88);
+    }
+    /* SENSOR FLASH END */
+
     /* ==========================================
        Activity Log UI
        ========================================== */
@@ -470,6 +543,9 @@
       .actions {
         justify-content: flex-start;
       }
+      .sensor-grid {
+        grid-template-columns: 1fr;
+      }
     }
 
     @media (max-width: 680px) {
@@ -480,6 +556,9 @@
         padding: 12px;
       }
       .relay-row {
+        grid-template-columns: 1fr;
+      }
+      .mapping-row {
         grid-template-columns: 1fr;
       }
       .status-row {
@@ -562,6 +641,23 @@
         </div>
       </article>
 
+      <!-- PIR UI START -->
+      <article class="panel half">
+        <h2>Sensor Mapping</h2>
+        <div id="pirMappingList" class="mapping-grid"></div>
+        <div class="actions" style="margin-top:12px;">
+          <button id="savePirMappingBtn" class="primary" type="button">Save Mapping</button>
+        </div>
+      </article>
+      <!-- PIR UI END -->
+
+      <!-- SENSOR FLASH START -->
+      <article class="panel half">
+        <h2>Sensor Activity</h2>
+        <div id="sensorIndicatorList" class="sensor-grid"></div>
+      </article>
+      <!-- SENSOR FLASH END -->
+
       <article class="panel half">
         <h2>Power Consumption</h2>
         <div id="powerDisabledText" class="meta">Energy tracking is disabled from settings.</div>
@@ -612,6 +708,14 @@
     const powerList = document.getElementById("powerList");
     const statsList = document.getElementById("statsList");
     const logList = document.getElementById("logList");
+    // PIR UI START
+    const pirMappingList = document.getElementById("pirMappingList");
+    const savePirMappingBtn = document.getElementById("savePirMappingBtn");
+    // PIR UI END
+    // SENSOR FLASH START
+    const sensorIndicatorList = document.getElementById("sensorIndicatorList");
+    const sensorFlashUntil = Array.from({ length: 3 }, () => 0);
+    // SENSOR FLASH END
 
     const wsStatus = document.getElementById("wsStatus");
     const syncStatus = document.getElementById("syncStatus");
@@ -783,6 +887,56 @@
       `).join("");
     }
 
+    /* PIR UI START */
+    function renderPirMapping() {
+      if (!state || !Array.isArray(state.pirs)) return;
+      pirMappingList.innerHTML = state.pirs.map((pir) => `
+        <div class="mapping-row">
+          <div class="mapping-label">${pir.name}</div>
+          <label class="mapping-check">
+            <input id="pir${pir.index}RelayA" type="checkbox" ${pir.relayA ? "checked" : ""}>
+            Relay A
+          </label>
+          <label class="mapping-check">
+            <input id="pir${pir.index}RelayB" type="checkbox" ${pir.relayB ? "checked" : ""}>
+            Relay B
+          </label>
+        </div>
+      `).join("");
+    }
+    /* PIR UI END */
+
+    /* SENSOR FLASH START */
+    function isSensorIndicatorActive(pir) {
+      if (!pir || !state || state.systemMode !== "AUTO_PIR") return false;
+      const flashed = sensorFlashUntil[pir.index] > Date.now();
+      const recentlyTriggered = pir.lastTrigger && (nowEpoch() - Number(pir.lastTrigger) <= 1);
+      return flashed || recentlyTriggered;
+    }
+
+    function renderSensorIndicators() {
+      if (!state || !Array.isArray(state.pirs)) return;
+      sensorIndicatorList.innerHTML = state.pirs.map((pir) => `
+        <div class="sensor-card ${isSensorIndicatorActive(pir) ? "active" : "inactive"}">
+          <div class="sensor-name">${pir.name}</div>
+          <div class="sensor-meta">${isSensorIndicatorActive(pir) ? "Motion detected" : "Idle"}</div>
+          <div class="sensor-meta">Last trigger: ${pir.lastTrigger ? formatTimestamp(pir.lastTrigger) : "--"}</div>
+        </div>
+      `).join("");
+    }
+
+    function flashSensorIndicator(index) {
+      if (!Number.isInteger(index) || index < 0 || index >= sensorFlashUntil.length) return;
+      sensorFlashUntil[index] = Date.now() + 1000;
+      renderSensorIndicators();
+      window.setTimeout(() => {
+        if (Date.now() >= sensorFlashUntil[index]) {
+          renderSensorIndicators();
+        }
+      }, 1050);
+    }
+    /* SENSOR FLASH END */
+
     function renderPower() {
       if (!state || !Array.isArray(state.relays)) return;
       const enabled = !!state.energyTrackingEnabled;
@@ -843,6 +997,8 @@
     function renderState() {
       renderHeader();
       renderRelays();
+      renderPirMapping();
+      renderSensorIndicators();
       renderPower();
       renderStats();
     }
@@ -961,6 +1117,36 @@
       }
     }
 
+    /* PIR UI START */
+    async function savePirMapping() {
+      if (!state || !Array.isArray(state.pirs)) return;
+
+      const mappings = state.pirs.map((pir) => ({
+        relayA: !!document.getElementById(`pir${pir.index}RelayA`)?.checked,
+        relayB: !!document.getElementById(`pir${pir.index}RelayB`)?.checked
+      }));
+
+      try {
+        const response = await fetch("/api/pirMapping", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mappings })
+        });
+        const data = await response.json();
+        showToast(data.msg || (data.ok ? "Sensor mapping saved." : "Save failed."));
+        if (data.ok) {
+          if (socketReady) {
+            sendWs({ type: "get_state" });
+          } else {
+            await loadInitialState();
+          }
+        }
+      } catch {
+        showToast("Could not save sensor mapping.");
+      }
+    }
+    /* PIR UI END */
+
     // POWER RESET START
     async function resetConsumption() {
       try {
@@ -1044,6 +1230,15 @@
       }
 
       if (LOG_TYPES.has(msg.type)) {
+        if (msg.event === "pir.motion") {
+          const sensorIndex = Number.isInteger(msg.relay) ? msg.relay : Number(msg.channel);
+          if (Number.isInteger(sensorIndex) && sensorIndex >= 0) {
+            if (state && Array.isArray(state.pirs) && state.pirs[sensorIndex]) {
+              state.pirs[sensorIndex].lastTrigger = Number(msg.ts || nowEpoch());
+            }
+            flashSensorIndicator(sensorIndex);
+          }
+        }
         if (msg.event === "energy_update" && state && Array.isArray(state.relays)) {
           const relayIndex = Number(msg.relay);
           if (Number.isInteger(relayIndex) && relayIndex >= 0 && relayIndex < state.relays.length) {
@@ -1130,6 +1325,12 @@
     energyTrackingToggle.addEventListener("change", () => {
       sendWs({ type: "set_energy_tracking", enabled: energyTrackingToggle.checked });
     });
+
+    /* PIR UI START */
+    savePirMappingBtn.addEventListener("click", async () => {
+      await savePirMapping();
+    });
+    /* PIR UI END */
 
     // POWER RESET START
     resetConsumptionBtn.addEventListener("click", async () => {

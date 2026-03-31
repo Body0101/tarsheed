@@ -128,6 +128,49 @@ void WebPortal::setupRoutes() {
     server_.send(200, "application/json", payload);
   });
 
+  // PIR MAPPING START
+  server_.on("/api/pirMapping", HTTP_POST, [this]() {
+    JsonDocument response;
+    response["ok"] = false;
+
+    JsonDocument doc;
+    if (deserializeJson(doc, server_.arg("plain"))) {
+      response["msg"] = "Invalid JSON body.";
+      String payload;
+      serializeJson(response, payload);
+      server_.send(400, "application/json", payload);
+      return;
+    }
+
+    JsonArray mappingsJson = doc["mappings"].as<JsonArray>();
+    if (mappingsJson.isNull() || mappingsJson.size() != PIR_COUNT) {
+      response["msg"] = "Expected one mapping entry per PIR.";
+      String payload;
+      serializeJson(response, payload);
+      server_.send(400, "application/json", payload);
+      return;
+    }
+
+    PIRMapping mappings[PIR_COUNT]{};
+    for (size_t i = 0; i < PIR_COUNT; ++i) {
+      JsonObject item = mappingsJson[i];
+      mappings[i].relayA = item["relayA"] | false;
+      mappings[i].relayB = item["relayB"] | false;
+    }
+
+    String errorText;
+    const bool ok = engine_->setPirMapping(mappings, &errorText);
+    response["ok"] = ok;
+    response["msg"] = ok ? "Sensor mapping saved." : errorText;
+    String payload;
+    serializeJson(response, payload);
+    server_.send(ok ? 200 : 400, "application/json", payload);
+    if (ok) {
+      broadcast(engine_->buildStateJson());
+    }
+  });
+  // PIR MAPPING END
+
   // POWER RESET START
   server_.on("/api/resetConsumption", HTTP_POST, [this]() {
     String errorText;

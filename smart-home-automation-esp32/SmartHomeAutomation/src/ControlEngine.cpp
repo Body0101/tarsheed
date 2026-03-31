@@ -327,6 +327,29 @@ bool ControlEngine::cancelTimer(size_t relayIndex) {
   return canceled;
 }
 
+// PIR MAPPING START
+bool ControlEngine::setPirMapping(const PIRMapping mappings[PIR_COUNT], String *error) {
+  if (!mappings) {
+    if (error) *error = "Missing PIR mapping payload.";
+    return false;
+  }
+
+  bool updated = false;
+  withLock([&]() {
+    for (size_t i = 0; i < PIR_COUNT; ++i) {
+      runtime_->pirMap[i] = mappings[i];
+      storage_->persistPirMapping(i, runtime_->pirMap[i]);
+    }
+    updated = true;
+  });
+
+  if (!updated && error && error->isEmpty()) {
+    *error = "Could not save PIR mapping.";
+  }
+  return updated;
+}
+// PIR MAPPING END
+
 // POWER RESET START
 bool ControlEngine::resetConsumption(String *error) {
   bool reset = false;
@@ -510,6 +533,10 @@ String ControlEngine::buildStateJson() const {
       pir["name"] = PIR_CONFIG[i].name;
       pir["value"] = p.stableValue;
       pir["lastTrigger"] = p.lastTriggerEpoch;
+      // PIR MAPPING START
+      pir["relayA"] = runtime_->pirMap[i].relayA;
+      pir["relayB"] = runtime_->pirMap[i].relayB;
+      // PIR MAPPING END
     }
     serializeJson(doc, payload);
   });
@@ -584,8 +611,17 @@ void ControlEngine::processPirInputsLocked(uint64_t nowEpoch) {
     }
 
     pir.lastTriggerEpoch = nowEpoch;
+    // PIR MAPPING START
+    uint8_t relayMask = 0;
+    if (runtime_->pirMap[i].relayA) {
+      relayMask |= 0x01U;
+    }
+    if (runtime_->pirMap[i].relayB) {
+      relayMask |= 0x02U;
+    }
+    // PIR MAPPING END
     for (size_t relayIndex = 0; relayIndex < RELAY_COUNT; ++relayIndex) {
-      if ((PIR_CONFIG[i].relayMask & (1 << relayIndex)) == 0) {
+      if ((relayMask & (1 << relayIndex)) == 0) {
         continue;
       }
       RelayRuntime &relay = runtime_->relays[relayIndex];
