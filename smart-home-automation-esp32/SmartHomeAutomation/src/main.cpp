@@ -60,6 +60,8 @@ void initRuntimeDefaults() {
     gRuntime.relays[i].timer.durationMinutes = 0;
     gRuntime.relays[i].timer.restorePending = false;
     gRuntime.relays[i].autoHoldUntilEpoch = 0;
+    gRuntime.relays[i].ratedPowerWatts = RELAY_CONFIG[i].ratedPowerWatts;
+    gRuntime.relays[i].ratedPowerLocked = false;
     gRuntime.relays[i].energyTrackingActive = false;
     gRuntime.relays[i].energyStartEpoch = 0;
     gRuntime.relays[i].stats.timerUses = 0;
@@ -75,6 +77,10 @@ void initRuntimeDefaults() {
     gRuntime.pirs[i].stableValue = false;
     gRuntime.pirs[i].lastChangeMs = 0;
     gRuntime.pirs[i].lastTriggerEpoch = 0;
+    // PIR MAPPING START
+    gRuntime.pirMap[i].relayA = (PIR_CONFIG[i].relayMask & 0x01U) != 0;
+    gRuntime.pirMap[i].relayB = (PIR_CONFIG[i].relayMask & 0x02U) != 0;
+    // PIR MAPPING END
   }
 }
 

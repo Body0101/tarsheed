@@ -21,6 +21,15 @@ class ControlEngine {
   bool setManualMode(size_t relayIndex, RelayMode mode, String *error);
   bool setTimer(size_t relayIndex, uint32_t durationMinutes, RelayState targetState, String *error);
   bool cancelTimer(size_t relayIndex);
+  // POWER RESET START
+  bool resetConsumption(String *error);
+  // POWER RESET END
+  // PIR MAPPING START
+  bool setPirMapping(const PIRMapping mappings[PIR_COUNT], String *error);
+  // PIR MAPPING END
+  // RATED DYNAMIC START
+  bool setRatedPower(size_t relayIndex, float watts, String *error);
+  // RATED DYNAMIC END
   void setInterlock(bool enabled);
   void setEnergyTrackingEnabled(bool enabled);
   void updateConnectedClients(uint16_t clients);

@@ -18,6 +18,10 @@ class StorageLayer {
   void persistTimer(size_t relayIndex, const TimerPlan &plan);
   void persistRelayStats(size_t relayIndex, const RelayStats &stats);
   void persistRelayEnergyStats(size_t relayIndex, float totalEnergyWh, float lastEnergyWh);
+  void persistRatedPower(size_t relayIndex, float watts, bool locked);
+  // PIR MAPPING START
+  void persistPirMapping(size_t pirIndex, const PIRMapping &mapping);
+  // PIR MAPPING END
   void persistInterlock(bool enabled);
   void persistEnergyTrackingEnabled(bool enabled);
   void persistLastCleanupDay(uint32_t dayToken);

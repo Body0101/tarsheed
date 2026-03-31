@@ -2,6 +2,10 @@
 
 #include "SystemTypes.h"
 
+#ifndef ALLOW_RATED_RESET
+#define ALLOW_RATED_RESET false
+#endif
+
 constexpr char AP_SSID[] = "ESP32-SmartHome";
 constexpr char AP_PASSWORD[] = "SmartHome123";
 

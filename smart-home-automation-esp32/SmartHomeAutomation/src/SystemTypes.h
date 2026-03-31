@@ -22,6 +22,13 @@ struct PirConfig {
   const char *name;
 };
 
+// PIR MAPPING START
+struct PIRMapping {
+  bool relayA;
+  bool relayB;
+};
+// PIR MAPPING END
+
 struct TimerPlan {
   bool active;
   uint64_t startEpoch;
@@ -48,6 +55,8 @@ struct RelayRuntime {
   ControlSource appliedSource;
   TimerPlan timer;
   uint64_t autoHoldUntilEpoch;
+  float ratedPowerWatts;
+  bool ratedPowerLocked;
   bool energyTrackingActive;
   uint64_t energyStartEpoch;
   RelayStats stats;
@@ -63,6 +72,9 @@ struct PirRuntime {
 struct SystemRuntime {
   RelayRuntime relays[RELAY_COUNT];
   PirRuntime pirs[PIR_COUNT];
+  // PIR MAPPING START
+  PIRMapping pirMap[PIR_COUNT];
+  // PIR MAPPING END
   bool interlockEnabled;
   bool energyTrackingEnabled;
   uint16_t connectedClients;

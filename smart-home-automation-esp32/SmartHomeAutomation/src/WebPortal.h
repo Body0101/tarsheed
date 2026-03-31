@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <DNSServer.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <array>
@@ -44,6 +45,10 @@ class WebPortal {
   void pushStateSnapshot(uint8_t clientId);
   void processQueue();
   bool applyTimeSyncFromJson(const JsonDocument &doc, bool requireClockFields);
+  // CAPTIVE PORTAL START
+  void beginCaptivePortal();
+  void sendCaptivePortalResponse(int httpCode);
+  // CAPTIVE PORTAL END
   String normalizeLogPayload(const String &rawJson, const String &fallbackMac) const;
   String formatEpochClock(uint64_t epoch) const;
   void setCommandContext(uint8_t clientId);
@@ -65,6 +70,10 @@ class WebPortal {
 
   WebServer server_{HTTP_PORT};
   WebSocketsServer socket_{WS_PORT};
+  // CAPTIVE PORTAL START
+  DNSServer dnsServer_;
+  bool captivePortalEnabled_ = false;
+  // CAPTIVE PORTAL END
   QueueHandle_t outboundQueue_ = nullptr;
   SemaphoreHandle_t contextMutex_ = nullptr;
   std::array<bool, WS_MAX_CLIENTS> clients_{};

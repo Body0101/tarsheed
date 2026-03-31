@@ -327,6 +327,73 @@ bool ControlEngine::cancelTimer(size_t relayIndex) {
   return canceled;
 }
 
+// POWER RESET START
+bool ControlEngine::resetConsumption(String *error) {
+  bool reset = false;
+  withLock([&]() {
+    const uint64_t nowEpoch = nowEpochLocked();
+
+    // Clear only consumption-related counters. Relay modes, timers, and settings stay untouched.
+    for (size_t i = 0; i < RELAY_COUNT; ++i) {
+      RelayRuntime &relay = runtime_->relays[i];
+      relay.stats.accumulatedOnSeconds = 0;
+      relay.stats.totalEnergyWh = 0.0f;
+      relay.stats.lastEnergyWh = 0.0f;
+
+      // Rebase active runtime windows so future accumulation resumes from "now"
+      // without re-counting usage that existed before the reset action.
+      relay.stats.lastOnEpoch = relay.appliedState == RelayState::ON ? nowEpoch : 0;
+      if (runtime_->energyTrackingEnabled && relay.timer.active && relay.timer.targetState == RelayState::ON) {
+        relay.energyStartEpoch = nowEpoch;
+      } else if (!relay.energyTrackingActive) {
+        relay.energyStartEpoch = 0;
+      }
+
+      storage_->persistRelayStats(i, relay.stats);
+      storage_->persistRelayEnergyStats(i, relay.stats.totalEnergyWh, relay.stats.lastEnergyWh);
+    }
+    reset = true;
+  });
+
+  if (!reset && error) {
+    *error = "Could not reset consumption counters.";
+  }
+  return reset;
+}
+// POWER RESET END
+
+// RATED DYNAMIC START
+bool ControlEngine::setRatedPower(size_t relayIndex, float watts, String *error) {
+  if (relayIndex >= RELAY_COUNT) {
+    if (error) *error = "Invalid relay index.";
+    return false;
+  }
+  if (!(watts > 0.0f) || watts > 50000.0f) {
+    if (error) *error = "Rated power must be between 0 and 50000 watts.";
+    return false;
+  }
+
+  bool updated = false;
+  withLock([&]() {
+    RelayRuntime &relay = runtime_->relays[relayIndex];
+    if (relay.ratedPowerLocked && !ALLOW_RATED_RESET) {
+      if (error) *error = "Rated power is already locked.";
+      return;
+    }
+
+    relay.ratedPowerWatts = watts;
+    relay.ratedPowerLocked = true;
+    storage_->persistRatedPower(relayIndex, relay.ratedPowerWatts, relay.ratedPowerLocked);
+    updated = true;
+  });
+
+  if (!updated && error && error->isEmpty()) {
+    *error = "Could not save rated power.";
+  }
+  return updated;
+}
+// RATED DYNAMIC END
+
 void ControlEngine::setInterlock(bool enabled) {
   withLock([&]() {
     runtime_->interlockEnabled = enabled;
@@ -430,7 +497,10 @@ String ControlEngine::buildStateJson() const {
       relay["totalEnergyWh"] = r.stats.totalEnergyWh;
       relay["onSeconds"] = onSeconds;
       relay["powerWh"] = runtime_->energyTrackingEnabled ? r.stats.totalEnergyWh : 0.0f;
-      relay["powerW"] = RELAY_CONFIG[i].ratedPowerWatts;
+      // RATED DYNAMIC START
+      relay["powerW"] = r.ratedPowerWatts;
+      relay["powerLocked"] = r.ratedPowerLocked;
+      // RATED DYNAMIC END
     }
     JsonArray pirs = doc["pirs"].to<JsonArray>();
     for (size_t i = 0; i < PIR_COUNT; ++i) {
@@ -794,7 +864,9 @@ void ControlEngine::finalizeEnergyTrackingLocked(size_t relayIndex,
   // Lightweight energy math: Wh = Power(W) * duration(hours)
   const uint64_t energyEndEpoch = nowEpoch;
   const float durationHours = static_cast<float>(energyEndEpoch - relay.energyStartEpoch) / 3600.0f;
-  const float lastWh = RELAY_CONFIG[relayIndex].ratedPowerWatts * durationHours;
+  // RATED DYNAMIC START
+  const float lastWh = relay.ratedPowerWatts * durationHours;
+  // RATED DYNAMIC END
   relay.stats.lastEnergyWh = lastWh;
   relay.stats.totalEnergyWh += lastWh;
   storage_->persistRelayEnergyStats(relayIndex, relay.stats.totalEnergyWh, relay.stats.lastEnergyWh);

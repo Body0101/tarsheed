@@ -42,7 +42,20 @@ void StorageLayer::loadRuntime(SystemRuntime *runtime) {
   }
   runtime->interlockEnabled = preferences_.getBool("interlock", false);
   runtime->energyTrackingEnabled = preferences_.getBool("energy_en", false);
+  // PIR MAPPING START
+  for (size_t i = 0; i < PIR_COUNT; ++i) {
+    const uint8_t storedMask = preferences_.getUChar(keyFor("pm", i).c_str(), PIR_CONFIG[i].relayMask);
+    runtime->pirMap[i].relayA = (storedMask & 0x01U) != 0;
+    runtime->pirMap[i].relayB = (storedMask & 0x02U) != 0;
+  }
+  // PIR MAPPING END
   for (size_t i = 0; i < RELAY_COUNT; ++i) {
+    // RATED DYNAMIC START
+    // Load one-time rated power from NVS when present; otherwise keep compile-time defaults unlocked.
+    const float storedRatedPower = preferences_.getFloat(keyFor("rp", i).c_str(), RELAY_CONFIG[i].ratedPowerWatts);
+    runtime->relays[i].ratedPowerWatts = storedRatedPower > 0.0f ? storedRatedPower : RELAY_CONFIG[i].ratedPowerWatts;
+    runtime->relays[i].ratedPowerLocked = preferences_.getBool(keyFor("rpl", i).c_str(), false);
+    // RATED DYNAMIC END
     uint8_t mode = preferences_.getUChar(keyFor("m", i).c_str(), static_cast<uint8_t>(RelayMode::AUTO));
     uint8_t state = preferences_.getUChar(keyFor("rs", i).c_str(), static_cast<uint8_t>(RelayState::OFF));
     uint8_t source = preferences_.getUChar(keyFor("src", i).c_str(), static_cast<uint8_t>(ControlSource::NONE));
@@ -171,6 +184,32 @@ void StorageLayer::persistRelayEnergyStats(size_t relayIndex, float totalEnergyW
   preferences_.putFloat(keyFor("ewl", relayIndex).c_str(), lastEnergyWh);
   unlock();
 }
+
+void StorageLayer::persistRatedPower(size_t relayIndex, float watts, bool locked) {
+  if (!lock()) {
+    return;
+  }
+  preferences_.putFloat(keyFor("rp", relayIndex).c_str(), watts);
+  preferences_.putBool(keyFor("rpl", relayIndex).c_str(), locked);
+  unlock();
+}
+
+// PIR MAPPING START
+void StorageLayer::persistPirMapping(size_t pirIndex, const PIRMapping &mapping) {
+  if (!lock()) {
+    return;
+  }
+  uint8_t mask = 0;
+  if (mapping.relayA) {
+    mask |= 0x01U;
+  }
+  if (mapping.relayB) {
+    mask |= 0x02U;
+  }
+  preferences_.putUChar(keyFor("pm", pirIndex).c_str(), mask);
+  unlock();
+}
+// PIR MAPPING END
 
 void StorageLayer::persistInterlock(bool enabled) {
   if (!lock()) {

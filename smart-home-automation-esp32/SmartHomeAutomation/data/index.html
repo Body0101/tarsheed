@@ -565,6 +565,11 @@
       <article class="panel half">
         <h2>Power Consumption</h2>
         <div id="powerDisabledText" class="meta">Energy tracking is disabled from settings.</div>
+        <!-- POWER RESET START -->
+        <div id="powerActions" class="actions" style="display:none; margin: 0 0 12px;">
+          <button id="resetConsumptionBtn" type="button">Reset Consumption</button>
+        </div>
+        <!-- POWER RESET END -->
         <ul id="powerList" class="power-list"></ul>
       </article>
 
@@ -625,6 +630,8 @@
     const refreshBtn = document.getElementById("refreshBtn");
     const syncTimeBtn = document.getElementById("syncTimeBtn");
     const powerDisabledText = document.getElementById("powerDisabledText");
+    const powerActions = document.getElementById("powerActions");
+    const resetConsumptionBtn = document.getElementById("resetConsumptionBtn");
     const toast = document.getElementById("toast");
 
     let socket = null;
@@ -780,21 +787,29 @@
       if (!state || !Array.isArray(state.relays)) return;
       const enabled = !!state.energyTrackingEnabled;
       powerDisabledText.style.display = enabled ? "none" : "block";
-      powerList.style.display = enabled ? "grid" : "none";
-      if (!enabled) {
-        powerList.innerHTML = "";
-        return;
-      }
+      powerActions.style.display = enabled ? "flex" : "none";
+      powerList.style.display = "grid";
 
       let totalWh = 0;
       powerList.innerHTML = state.relays.map((relay) => {
         const wh = Number(relay.totalEnergyWh || 0);
         const lastWh = Number(relay.lastEnergyWh || 0);
+        const powerW = Number(relay.powerW || 0);
+        const powerLocked = !!relay.powerLocked;
         totalWh += wh;
         return `
           <li class="power-item">
             <strong>${relay.name}</strong><br>
-            Rated: ${Number(relay.powerW || 0).toFixed(1)}W<br>
+            <!-- RATED DYNAMIC START -->
+            <label class="field" style="margin:8px 0 10px;">
+              Rated Power (W)
+              <input id="ratedPower${relay.index}" type="number" min="0.1" step="0.1" value="${powerW.toFixed(1)}" ${powerLocked ? "disabled" : ""}>
+            </label>
+            <div class="meta" style="margin-bottom:8px;">Rated power can only be set once</div>
+            <div class="actions" style="margin-bottom:8px;">
+              <button type="button" onclick="saveRatedPower(${relay.index})" ${powerLocked ? "disabled" : ""}>Save Rated Power</button>
+            </div>
+            <!-- RATED DYNAMIC END -->
             Last Timer Energy: ${lastWh.toFixed(3)} Wh<br>
             Total Timer Energy: ${wh.toFixed(3)} Wh
           </li>
@@ -946,6 +961,51 @@
       }
     }
 
+    // POWER RESET START
+    async function resetConsumption() {
+      try {
+        const response = await fetch("/api/resetConsumption", { method: "POST" });
+        const data = await response.json();
+        showToast(data.msg || (data.ok ? "Consumption counters reset." : "Reset failed."));
+        if (data.ok) {
+          if (socketReady) sendWs({ type: "get_state" });
+          else await loadInitialState();
+        }
+      } catch {
+        showToast("Reset request failed.");
+      }
+    }
+    // POWER RESET END
+
+    // RATED DYNAMIC START
+    window.saveRatedPower = async (channel) => {
+      const input = document.getElementById(`ratedPower${channel}`);
+      if (!input) return;
+
+      const powerW = Number(input.value);
+      if (!powerW || powerW <= 0) {
+        showToast("Rated power must be greater than zero.");
+        return;
+      }
+
+      try {
+        const response = await fetch("/api/ratedPower", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ channel, powerW })
+        });
+        const data = await response.json();
+        showToast(data.msg || (data.ok ? "Rated power saved." : "Could not save rated power."));
+        if (data.ok) {
+          if (socketReady) sendWs({ type: "get_state" });
+          else await loadInitialState();
+        }
+      } catch {
+        showToast("Rated power request failed.");
+      }
+    };
+    // RATED DYNAMIC END
+
     function handleSocketMessage(rawData) {
       let msg = null;
       try {
@@ -1070,6 +1130,12 @@
     energyTrackingToggle.addEventListener("change", () => {
       sendWs({ type: "set_energy_tracking", enabled: energyTrackingToggle.checked });
     });
+
+    // POWER RESET START
+    resetConsumptionBtn.addEventListener("click", async () => {
+      await resetConsumption();
+    });
+    // POWER RESET END
 
     refreshBtn.addEventListener("click", () => {
       sendWs({ type: "get_state" });

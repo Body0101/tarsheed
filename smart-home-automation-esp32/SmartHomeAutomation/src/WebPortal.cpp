@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 #include <LittleFS.h>
+#include <WiFi.h>
 #include <cstring>
 #include <esp_idf_version.h>
 #include <esp_netif.h>
@@ -48,9 +49,17 @@ void WebPortal::begin(ControlEngine *engine, StorageLayer *storage, TimeKeeper *
   instance_ = this;
   socket_.begin();
   socket_.onEvent(onWsEventStatic);
+  // CAPTIVE PORTAL START
+  beginCaptivePortal();
+  // CAPTIVE PORTAL END
 }
 
 void WebPortal::loop() {
+  // CAPTIVE PORTAL START
+  if (captivePortalEnabled_) {
+    dnsServer_.processNextRequest();
+  }
+  // CAPTIVE PORTAL END
   server_.handleClient();
   socket_.loop();
   processQueue();
@@ -80,6 +89,16 @@ bool WebPortal::enqueueEvent(const String &eventJson, bool bufferIfOffline) {
 uint16_t WebPortal::connectedClientCount() const { return connectedClients_; }
 
 void WebPortal::setupRoutes() {
+  // CAPTIVE PORTAL START
+  auto captiveProbeHandler = [this]() { sendCaptivePortalResponse(200); };
+  server_.on("/generate_204", HTTP_ANY, captiveProbeHandler);
+  server_.on("/gen_204", HTTP_ANY, captiveProbeHandler);
+  server_.on("/hotspot-detect.html", HTTP_ANY, captiveProbeHandler);
+  server_.on("/connecttest.txt", HTTP_ANY, captiveProbeHandler);
+  server_.on("/redirect", HTTP_ANY, captiveProbeHandler);
+  server_.on("/ncsi.txt", HTTP_ANY, captiveProbeHandler);
+  // CAPTIVE PORTAL END
+
   server_.on("/", HTTP_GET, [this]() {
     File file = LittleFS.open("/index.html", FILE_READ);
     if (!file) {
@@ -109,6 +128,47 @@ void WebPortal::setupRoutes() {
     server_.send(200, "application/json", payload);
   });
 
+  // POWER RESET START
+  server_.on("/api/resetConsumption", HTTP_POST, [this]() {
+    String errorText;
+    const bool ok = engine_->resetConsumption(&errorText);
+
+    JsonDocument doc;
+    doc["ok"] = ok;
+    doc["msg"] = ok ? "Consumption counters reset." : errorText;
+    String payload;
+    serializeJson(doc, payload);
+    server_.send(ok ? 200 : 400, "application/json", payload);
+  });
+  // POWER RESET END
+
+  // RATED DYNAMIC START
+  server_.on("/api/ratedPower", HTTP_POST, [this]() {
+    JsonDocument response;
+    response["ok"] = false;
+
+    JsonDocument doc;
+    if (deserializeJson(doc, server_.arg("plain"))) {
+      response["msg"] = "Invalid JSON body.";
+      String payload;
+      serializeJson(response, payload);
+      server_.send(400, "application/json", payload);
+      return;
+    }
+
+    const size_t channel = static_cast<size_t>(doc["channel"] | 99);
+    const float powerW = doc["powerW"] | 0.0f;
+    String errorText;
+    const bool ok = engine_->setRatedPower(channel, powerW, &errorText);
+
+    response["ok"] = ok;
+    response["msg"] = ok ? "Rated power saved." : errorText;
+    String payload;
+    serializeJson(response, payload);
+    server_.send(ok ? 200 : 400, "application/json", payload);
+  });
+  // RATED DYNAMIC END
+
   auto setTimeHandler = [this]() {
     const String payload = handleSetTime(server_.arg("plain"));
     const int status = payload.indexOf("\"ok\":true") >= 0 ? 200 : 400;
@@ -126,9 +186,42 @@ void WebPortal::setupRoutes() {
         return;
       }
     }
-    server_.send(404, "text/plain", "Not found");
+    // CAPTIVE PORTAL START
+    sendCaptivePortalResponse(302);
+    // CAPTIVE PORTAL END
   });
 }
+
+// CAPTIVE PORTAL START
+void WebPortal::beginCaptivePortal() {
+  const IPAddress apIp = WiFi.softAPIP();
+  if (apIp == IPAddress(0, 0, 0, 0)) {
+    return;
+  }
+
+  dnsServer_.setErrorReplyCode(DNSReplyCode::NoError);
+  captivePortalEnabled_ = dnsServer_.start(53, "*", apIp);
+}
+
+void WebPortal::sendCaptivePortalResponse(int httpCode) {
+  server_.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate", true);
+  server_.sendHeader("Pragma", "no-cache", true);
+  server_.sendHeader("Expires", "0", true);
+  if (httpCode >= 300 && httpCode < 400) {
+    server_.sendHeader("Location", "/", true);
+  }
+
+  const char html[] PROGMEM =
+      "<!doctype html><html><head><meta charset='utf-8'>"
+      "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+      "<meta http-equiv='refresh' content='0; url=/'>"
+      "<title>ESP32 Portal</title></head><body>"
+      "<script>window.location.href='/'</script>"
+      "<p>Opening portal...</p></body></html>";
+
+  server_.send(httpCode, "text/html", html);
+}
+// CAPTIVE PORTAL END
 
 void WebPortal::handleWsEvent(uint8_t clientId, WStype_t type, uint8_t *payload, size_t length) {
   switch (type) {
