@@ -11,9 +11,25 @@ String keyFor(const char *prefix, size_t index) {
   key += String(index);
   return key;
 }
+
+// STORAGE START
+// Files created by the application at runtime. Factory reset removes these files
+// but intentionally leaves bundled UI assets (for example /index.html) intact.
+constexpr const char *kRuntimeFiles[] = {
+    FILE_LOGS,
+    FILE_PENDING,
+};
+// STORAGE END
 }  // namespace
 
 bool StorageLayer::begin() {
+  // STORAGE START
+  // Storage initialization order:
+  // 1) Create a mutex so flash access stays serialized across tasks.
+  // 2) Mount LittleFS for persistent file storage (logs / JSON files).
+  // 3) Open the Preferences namespace for NVS key-value settings.
+  // RAM state is not initialized here because RAM is volatile and is rebuilt at boot.
+  // STORAGE END
   if (!ioMutex_) {
     ioMutex_ = xSemaphoreCreateMutex();
   }
@@ -210,6 +226,140 @@ void StorageLayer::persistPirMapping(size_t pirIndex, const PIRMapping &mapping)
   unlock();
 }
 // PIR MAPPING END
+
+// STORAGE START
+bool StorageLayer::saveBoolSetting(const char *key, bool value) {
+  if (!key || !lock()) {
+    return false;
+  }
+  const size_t written = preferences_.putBool(key, value);
+  unlock();
+  return written == sizeof(uint8_t);
+}
+
+bool StorageLayer::saveIntSetting(const char *key, int32_t value) {
+  if (!key || !lock()) {
+    return false;
+  }
+  const size_t written = preferences_.putInt(key, value);
+  unlock();
+  return written == sizeof(int32_t);
+}
+
+bool StorageLayer::saveStringSetting(const char *key, const String &value) {
+  if (!key || !lock()) {
+    return false;
+  }
+  const size_t written = preferences_.putString(key, value);
+  unlock();
+  return written == value.length();
+}
+
+bool StorageLayer::readBoolSetting(const char *key, bool defaultValue, bool *outValue) {
+  if (!key || !outValue || !lock()) {
+    return false;
+  }
+  *outValue = preferences_.getBool(key, defaultValue);
+  unlock();
+  return true;
+}
+
+bool StorageLayer::readIntSetting(const char *key, int32_t defaultValue, int32_t *outValue) {
+  if (!key || !outValue || !lock()) {
+    return false;
+  }
+  *outValue = preferences_.getInt(key, defaultValue);
+  unlock();
+  return true;
+}
+
+bool StorageLayer::readStringSetting(const char *key, const String &defaultValue, String *outValue) {
+  if (!key || !outValue || !lock()) {
+    return false;
+  }
+  *outValue = preferences_.getString(key, defaultValue);
+  unlock();
+  return true;
+}
+
+bool StorageLayer::writeJsonFile(const char *path, const JsonDocument &doc) {
+  if (!path || !lock()) {
+    return false;
+  }
+
+  File file = LittleFS.open(path, FILE_WRITE);
+  if (!file) {
+    unlock();
+    return false;
+  }
+
+  const size_t written = serializeJson(doc, file);
+  file.close();
+  unlock();
+  return written > 0;
+}
+
+bool StorageLayer::readJsonFile(const char *path, JsonDocument *doc) const {
+  if (!path || !doc || !lock()) {
+    return false;
+  }
+
+  File file = LittleFS.open(path, FILE_READ);
+  if (!file) {
+    unlock();
+    return false;
+  }
+
+  DeserializationError err = deserializeJson(*doc, file);
+  file.close();
+  unlock();
+  return !err;
+}
+
+bool StorageLayer::deleteSettingKey(const char *key) {
+  if (!key || !lock()) {
+    return false;
+  }
+  const bool removed = preferences_.remove(key);
+  unlock();
+  return removed;
+}
+
+bool StorageLayer::deleteFile(const char *path) const {
+  if (!path || !lock()) {
+    return false;
+  }
+  const bool deleted = !LittleFS.exists(path) || LittleFS.remove(path);
+  unlock();
+  return deleted;
+}
+
+bool StorageLayer::clearLogFiles() {
+  bool allDeleted = true;
+  for (const char *path : kRuntimeFiles) {
+    if (!deleteFile(path)) {
+      allDeleted = false;
+    }
+  }
+  return allDeleted;
+}
+
+bool StorageLayer::factoryReset() {
+  if (!lock()) {
+    return false;
+  }
+
+  // Clear only this application's NVS namespace. This preserves unrelated namespaces.
+  const bool prefsCleared = preferences_.clear();
+  unlock();
+  if (!prefsCleared) {
+    return false;
+  }
+
+  // Remove runtime-generated files only. Do not erase /index.html or other uploaded UI assets.
+  return clearLogFiles();
+}
+// STORAGE END
 
 void StorageLayer::persistInterlock(bool enabled) {
   if (!lock()) {

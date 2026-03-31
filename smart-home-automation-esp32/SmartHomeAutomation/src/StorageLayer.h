@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <Preferences.h>
 #include <functional>
@@ -22,6 +23,27 @@ class StorageLayer {
   // PIR MAPPING START
   void persistPirMapping(size_t pirIndex, const PIRMapping &mapping);
   // PIR MAPPING END
+  // STORAGE START
+  // Save small configuration values in NVS/Preferences. These survive reboot.
+  bool saveBoolSetting(const char *key, bool value);
+  bool saveIntSetting(const char *key, int32_t value);
+  bool saveStringSetting(const char *key, const String &value);
+
+  // Read key-value settings back from NVS at boot/runtime.
+  bool readBoolSetting(const char *key, bool defaultValue, bool *outValue);
+  bool readIntSetting(const char *key, int32_t defaultValue, int32_t *outValue);
+  bool readStringSetting(const char *key, const String &defaultValue, String *outValue);
+
+  // Save/load structured data as JSON files in LittleFS.
+  bool writeJsonFile(const char *path, const JsonDocument &doc);
+  bool readJsonFile(const char *path, JsonDocument *doc) const;
+
+  // Delete one key, one file, log files, or all application data.
+  bool deleteSettingKey(const char *key);
+  bool deleteFile(const char *path) const;
+  bool clearLogFiles();
+  bool factoryReset();
+  // STORAGE END
   void persistInterlock(bool enabled);
   void persistEnergyTrackingEnabled(bool enabled);
   void persistLastCleanupDay(uint32_t dayToken);
