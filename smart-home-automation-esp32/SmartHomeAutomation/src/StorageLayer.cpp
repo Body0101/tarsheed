@@ -56,6 +56,13 @@ void StorageLayer::loadRuntime(SystemRuntime *runtime) {
   if (!lock()) {
     return;
   }
+  // Restore user-changeable settings from NVS at boot:
+  // - global toggles: interlock, energy tracking
+  // - per-relay settings: manual mode, last applied state/source, active timer plan
+  // - per-relay power configuration: rated wattage + lock flag
+  // - per-sensor settings: PIR-to-relay mapping
+  // After a page reload, the frontend reads the same live values back through
+  // /api/state and WebSocket state_snapshot so the UI matches the saved system state.
   runtime->interlockEnabled = preferences_.getBool("interlock", false);
   runtime->energyTrackingEnabled = preferences_.getBool("energy_en", false);
   // PIR MAPPING START

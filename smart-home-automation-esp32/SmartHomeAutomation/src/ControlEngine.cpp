@@ -477,21 +477,10 @@ void ControlEngine::updateConnectedClients(uint16_t clients) {
     const bool newManualWeb = clients > 0;
     runtime_->connectedClients = clients;
 
-    // Requirement: when no client is connected, system must run in automatic PIR mode.
-    if (!newManualWeb) {
-      for (size_t i = 0; i < RELAY_COUNT; ++i) {
-        RelayRuntime &relay = runtime_->relays[i];
-        if (relay.manualMode != RelayMode::AUTO) {
-          relay.manualMode = RelayMode::AUTO;
-          storage_->persistManualMode(i, relay.manualMode);
-          publishEventLocked("TIMER",
-                             "manual.auto_reset",
-                             String(RELAY_CONFIG[i].name) + " switched to AUTO because all clients disconnected.",
-                             static_cast<int>(i),
-                             true);
-        }
-      }
-    }
+    // Keep the last user-selected manual mode persisted across page reloads/reconnects.
+    // Automatic PIR behavior still remains unchanged while no clients are connected
+    // because evaluateRelayLocked() only applies manual ON/OFF when connectedClients > 0.
+    // This preserves user settings in NVS without forcing them back to AUTO on refresh.
 
     if (oldManualWeb != newManualWeb) {
       publishEventLocked("TIMER",

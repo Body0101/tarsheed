@@ -1275,6 +1275,14 @@
 
         sendWs({ type: "time_sync", ...buildDeviceTimePayload() });
         sendWs({ type: "get_state" });
+
+        // Ask once more shortly after reconnect so persisted relay/manual/timer
+        // settings are reflected after the ESP32 updates connectedClients state.
+        window.setTimeout(() => {
+          if (socketReady) {
+            sendWs({ type: "get_state" });
+          }
+        }, 200);
       });
 
       socket.addEventListener("message", (event) => handleSocketMessage(event.data));
