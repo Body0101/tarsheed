@@ -7,7 +7,7 @@
 #endif
 
 constexpr char AP_SSID[] = "ESP32-SmartHome";
-constexpr char AP_PASSWORD[] = "SmartHome123";
+constexpr char AP_PASSWORD[] = "12345678";
 
 // Keep blank if no infrastructure Wi-Fi is available.
 constexpr char STA_SSID[] = "";
@@ -18,6 +18,12 @@ constexpr RelayConfig RELAY_CONFIG[RELAY_COUNT] = {
     {27, "Relay B", 100.0f},
 };
 
+// Most 2-channel ESP32 relay boards are active-low:
+// LOW energizes the relay, HIGH releases it.
+// Keeping this configurable here lets the rest of the control logic
+// use natural ON/OFF semantics without inverting button behavior.
+constexpr bool RELAY_ACTIVE_LOW = true;
+
 constexpr PirConfig PIR_CONFIG[PIR_COUNT] = {
     {32, 0b01, "PIR A"},  // drives Relay A
     {33, 0b10, "PIR B"},  // drives Relay B
@@ -27,7 +33,7 @@ constexpr PirConfig PIR_CONFIG[PIR_COUNT] = {
 constexpr uint32_t CONTROL_TASK_PERIOD_MS = 50;
 constexpr uint32_t WEB_TASK_PERIOD_MS = 10;
 constexpr uint32_t PIR_DEBOUNCE_MS = 180;
-constexpr uint32_t PIR_HOLD_SECONDS = 5 * 60;
+constexpr uint32_t PIR_HOLD_SECONDS = 20;
 constexpr uint32_t HOUSEKEEPING_PERIOD_MS = 1500;
 
 constexpr uint32_t LOG_MAX_BYTES = 120 * 1024;

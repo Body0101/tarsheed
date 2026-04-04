@@ -696,6 +696,8 @@
       "manual.changed",
       "interlock.changed",
       "mode.changed",
+      "pir.motion",
+      "pir.idle",
       "night_lock.activated",
       "night_lock.released",
       "relay.night_forced_off",
@@ -916,10 +918,9 @@
 
     /* SENSOR FLASH START */
     function isSensorIndicatorActive(pir) {
-      if (!pir || !state || state.systemMode !== "AUTO_PIR") return false;
+      if (!pir) return false;
       const flashed = sensorFlashUntil[pir.index] > Date.now();
-      const recentlyTriggered = pir.lastTrigger && (nowEpoch() - Number(pir.lastTrigger) <= 1);
-      return flashed || recentlyTriggered;
+      return !!pir.value || flashed;
     }
 
     function renderSensorIndicators() {
@@ -927,7 +928,7 @@
       sensorIndicatorList.innerHTML = state.pirs.map((pir) => `
         <div class="sensor-card ${isSensorIndicatorActive(pir) ? "active" : "inactive"}">
           <div class="sensor-name">${pir.name}</div>
-          <div class="sensor-meta">${isSensorIndicatorActive(pir) ? "Motion detected" : "Idle"}</div>
+          <div class="sensor-meta">${isSensorIndicatorActive(pir) ? "Active" : "Idle"}</div>
           <div class="sensor-meta">Last trigger: ${pir.lastTrigger ? formatTimestamp(pir.lastTrigger) : "--"}</div>
         </div>
       `).join("");
@@ -1240,13 +1241,20 @@
       }
 
       if (LOG_TYPES.has(msg.type)) {
-        if (msg.event === "pir.motion") {
+        if (msg.event === "pir.motion" || msg.event === "pir.idle") {
           const sensorIndex = Number.isInteger(msg.relay) ? msg.relay : Number(msg.channel);
           if (Number.isInteger(sensorIndex) && sensorIndex >= 0) {
             if (state && Array.isArray(state.pirs) && state.pirs[sensorIndex]) {
-              state.pirs[sensorIndex].lastTrigger = Number(msg.ts || nowEpoch());
+              state.pirs[sensorIndex].value = msg.event === "pir.motion";
+              if (msg.event === "pir.motion") {
+                state.pirs[sensorIndex].lastTrigger = Number(msg.ts || nowEpoch());
+              }
             }
-            flashSensorIndicator(sensorIndex);
+            if (msg.event === "pir.motion") {
+              flashSensorIndicator(sensorIndex);
+            } else {
+              renderSensorIndicators();
+            }
           }
         }
         if (msg.event === "energy_update" && state && Array.isArray(state.relays)) {

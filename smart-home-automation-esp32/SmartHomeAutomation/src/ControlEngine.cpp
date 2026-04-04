@@ -6,6 +6,15 @@
 #include "Config.h"
 #include "Utils.h"
 
+namespace {
+uint8_t relayOutputLevel(RelayState state) {
+  if (RELAY_ACTIVE_LOW) {
+    return state == RelayState::ON ? LOW : HIGH;
+  }
+  return state == RelayState::ON ? HIGH : LOW;
+}
+}  // namespace
+
 void ControlEngine::begin(SystemRuntime *runtime, StorageLayer *storage, TimeKeeper *timeKeeper, SemaphoreHandle_t stateMutex) {
   runtime_ = runtime;
   storage_ = storage;
@@ -15,7 +24,9 @@ void ControlEngine::begin(SystemRuntime *runtime, StorageLayer *storage, TimeKee
   // Configure relay outputs and PIR inputs once at boot.
   for (size_t i = 0; i < RELAY_COUNT; ++i) {
     pinMode(RELAY_CONFIG[i].relayPin, OUTPUT);
-    digitalWrite(RELAY_CONFIG[i].relayPin, LOW);
+    // Drive the physical relay pin to the logical OFF state on boot.
+    // This keeps the UI meaning of ON/OFF aligned with the hardware board polarity.
+    digitalWrite(RELAY_CONFIG[i].relayPin, relayOutputLevel(RelayState::OFF));
   }
   for (size_t i = 0; i < PIR_COUNT; ++i) {
     pinMode(PIR_CONFIG[i].pin, INPUT);
@@ -112,7 +123,7 @@ void ControlEngine::tickHousekeeping() {
 void ControlEngine::refreshOutputs() {
   withLock([&]() {
     for (size_t i = 0; i < RELAY_COUNT; ++i) {
-      digitalWrite(RELAY_CONFIG[i].relayPin, runtime_->relays[i].appliedState == RelayState::ON ? HIGH : LOW);
+      digitalWrite(RELAY_CONFIG[i].relayPin, relayOutputLevel(runtime_->relays[i].appliedState));
     }
   });
 }
@@ -127,13 +138,6 @@ bool ControlEngine::setManualMode(size_t relayIndex, RelayMode mode, String *err
   withLock([&]() {
     const uint64_t nowEpoch = nowEpochLocked();
     const uint64_t timerEpoch = timeKeeper_->nowUserEpoch();
-
-    // Manual control is valid only while at least one web client is connected.
-    if (runtime_->connectedClients == 0) {
-      if (error) *error = "Manual control requires an active web client.";
-      publishEventLocked("ERROR", "manual.blocked", "Manual command rejected in AUTO mode.", static_cast<int>(relayIndex), true);
-      return;
-    }
 
     RelayRuntime &relay = runtime_->relays[relayIndex];
 
@@ -218,13 +222,6 @@ bool ControlEngine::setTimer(size_t relayIndex, uint32_t durationMinutes, RelayS
   withLock([&]() {
     RelayRuntime &relay = runtime_->relays[relayIndex];
     const uint64_t nowEpoch = timeKeeper_->nowUserEpoch();
-
-    // Timer is a Manual/Web-mode feature and should not start in AUTO (no clients).
-    if (runtime_->connectedClients == 0) {
-      if (error) *error = "Timer can start only while a web client is connected.";
-      publishEventLocked("ERROR", "timer.blocked", "Timer rejected in AUTO mode (no clients).", static_cast<int>(relayIndex), true);
-      return;
-    }
     if (!timeKeeper_->hasUserTime() || nowEpoch == 0) {
       if (error) *error = "Sync from user device first (open web page).";
       publishEventLocked("ERROR",
@@ -485,7 +482,8 @@ void ControlEngine::updateConnectedClients(uint16_t clients) {
     if (oldManualWeb != newManualWeb) {
       publishEventLocked("TIMER",
                          "mode.changed",
-                         newManualWeb ? "System entered MANUAL/WEB mode." : "System entered AUTO/PIR mode.",
+                         newManualWeb ? "A web client connected. Saved relay modes remain active."
+                                      : "All web clients disconnected. Relay modes continue from saved state.",
                          -1,
                          false);
     }
@@ -497,12 +495,31 @@ String ControlEngine::buildStateJson() const {
   withLock([&]() {
     JsonDocument doc;
     const uint64_t nowEpoch = nowEpochLocked();
+    bool anyManual = false;
+    bool anyAuto = false;
+    bool anyTimer = false;
+    for (size_t i = 0; i < RELAY_COUNT; ++i) {
+      anyManual = anyManual || (runtime_->relays[i].manualMode != RelayMode::AUTO);
+      anyAuto = anyAuto || (runtime_->relays[i].manualMode == RelayMode::AUTO);
+      anyTimer = anyTimer || runtime_->relays[i].timer.active;
+    }
+
     doc["type"] = "state_snapshot";
     doc["ts"] = nowEpoch;
     doc["dayPhase"] = dayPhaseToText(runtime_->dayPhase);
     doc["timeValid"] = runtime_->timeValid;
     doc["connectedClients"] = runtime_->connectedClients;
-    doc["systemMode"] = runtime_->connectedClients > 0 ? "MANUAL_WEB" : "AUTO_PIR";
+    // Expose the actual operating mode derived from persisted relay settings
+    // instead of current client connectivity.
+    if (anyTimer) {
+      doc["systemMode"] = "TIMER";
+    } else if (anyManual && anyAuto) {
+      doc["systemMode"] = "MIXED";
+    } else if (anyManual) {
+      doc["systemMode"] = "MANUAL";
+    } else {
+      doc["systemMode"] = "AUTO";
+    }
     doc["interlock"] = runtime_->interlockEnabled;
     doc["energyTrackingEnabled"] = runtime_->energyTrackingEnabled;
     doc["nightLock"] = runtime_->nightLockActive;
@@ -596,8 +613,6 @@ bool ControlEngine::canTurnOnLocked() const {
 }
 
 void ControlEngine::processPirInputsLocked(uint64_t nowEpoch) {
-  const bool pirAllowed = runtime_->connectedClients == 0;
-
   for (size_t i = 0; i < PIR_COUNT; ++i) {
     PirRuntime &pir = runtime_->pirs[i];
     const bool raw = digitalRead(PIR_CONFIG[i].pin) == HIGH;
@@ -613,13 +628,17 @@ void ControlEngine::processPirInputsLocked(uint64_t nowEpoch) {
 
     pir.stableValue = pir.rawValue;
     if (!pir.stableValue) {
+      // Publish sensor idle transitions so the UI can clear the activity panel.
+      publishEventLocked("TIMER",
+                         "pir.idle",
+                         String(PIR_CONFIG[i].name) + " returned to idle.",
+                         static_cast<int>(i),
+                         true);
       continue;
     }
-
-    // Automatic mode only: ignore PIR while web clients are connected.
-    if (!pirAllowed) {
-      continue;
-    }
+    // Track sensor activity regardless of network presence so the visual
+    // activity section stays accurate for connected users.
+    pir.lastTriggerEpoch = nowEpoch;
     if (runtime_->nightLockActive) {
       continue;
     }
@@ -628,7 +647,6 @@ void ControlEngine::processPirInputsLocked(uint64_t nowEpoch) {
       continue;
     }
 
-    pir.lastTriggerEpoch = nowEpoch;
     // PIR MAPPING START
     uint8_t relayMask = 0;
     if (runtime_->pirMap[i].relayA) {
@@ -643,6 +661,11 @@ void ControlEngine::processPirInputsLocked(uint64_t nowEpoch) {
         continue;
       }
       RelayRuntime &relay = runtime_->relays[relayIndex];
+      // AUTO mode is the only mode that should react to PIR motion.
+      // Manual ON/OFF and timer-controlled relays keep their own behavior.
+      if (relay.manualMode != RelayMode::AUTO || relay.timer.active) {
+        continue;
+      }
       relay.autoHoldUntilEpoch = max(relay.autoHoldUntilEpoch, nowEpoch + PIR_HOLD_SECONDS);
     }
     publishEventLocked("TIMER",
@@ -708,13 +731,12 @@ ControlEngine::Decision ControlEngine::evaluateRelayLocked(size_t relayIndex, ui
     return out;
   }
 
-  const bool manualWebMode = runtime_->connectedClients > 0;
-
-  // Manual has highest priority, but only in Manual/Web mode.
-  if (manualWebMode && relay.manualMode == RelayMode::ON) {
+  // Manual ON/OFF should continue working after the user disconnects.
+  // The selected relay mode is now authoritative, not client connectivity.
+  if (relay.manualMode == RelayMode::ON) {
     out.state = RelayState::ON;
     out.source = ControlSource::MANUAL;
-  } else if (manualWebMode && relay.manualMode == RelayMode::OFF) {
+  } else if (relay.manualMode == RelayMode::OFF) {
     out.state = RelayState::OFF;
     out.source = ControlSource::MANUAL;
   } else if (relay.timer.active) {
@@ -796,7 +818,7 @@ void ControlEngine::applyDecisionsLocked(const Decision decisions[RELAY_COUNT], 
       relay.stats.lastOnEpoch = nowEpoch;
     }
 
-    digitalWrite(RELAY_CONFIG[i].relayPin, relay.appliedState == RelayState::ON ? HIGH : LOW);
+    digitalWrite(RELAY_CONFIG[i].relayPin, relayOutputLevel(relay.appliedState));
     storage_->persistRelayState(i, relay.appliedState, relay.appliedSource);
     storage_->persistRelayStats(i, relay.stats);
 
@@ -871,7 +893,7 @@ void ControlEngine::applyNightLockTransitionLocked(bool activate, uint64_t nowEp
     }
     relay.appliedState = RelayState::OFF;
     relay.appliedSource = ControlSource::NONE;
-    digitalWrite(RELAY_CONFIG[i].relayPin, LOW);
+    digitalWrite(RELAY_CONFIG[i].relayPin, relayOutputLevel(RelayState::OFF));
     storage_->persistRelayState(i, relay.appliedState, relay.appliedSource);
     storage_->persistRelayStats(i, relay.stats);
 
