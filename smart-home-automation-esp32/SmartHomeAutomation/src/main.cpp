@@ -109,6 +109,9 @@ void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
 
 void setupWiFi() {
   WiFi.mode(WIFI_AP_STA);
+  // Disable Wi-Fi sleep so websocket and AP responsiveness stay stable under
+  // bursts of commands and frequent browser interaction.
+  WiFi.setSleep(false);
   WiFi.onEvent(onWiFiEvent);
 
   const bool apOk = WiFi.softAP(AP_SSID, AP_PASSWORD);
@@ -123,6 +126,27 @@ void setupWiFi() {
     Serial.printf("[WiFi] Connecting STA to %s\n", STA_SSID);
   } else {
     Serial.println("[WiFi] STA credentials empty; running AP-only until configured.");
+  }
+}
+
+void maintainWiFi() {
+  static uint32_t lastApCheckMs = 0;
+  static uint32_t lastStaReconnectMs = 0;
+  const uint32_t nowMs = millis();
+
+  if (nowMs - lastApCheckMs >= 2500UL) {
+    lastApCheckMs = nowMs;
+    if (WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) {
+      if (WiFi.softAP(AP_SSID, AP_PASSWORD)) {
+        pushSystemEvent("wifi.ap_restarted", "SoftAP restarted automatically after a connection failure.", false, true);
+      }
+    }
+  }
+
+  if (strlen(STA_SSID) > 0 && WiFi.status() != WL_CONNECTED && (nowMs - lastStaReconnectMs) >= 10000UL) {
+    lastStaReconnectMs = nowMs;
+    WiFi.disconnect(false, false);
+    WiFi.begin(STA_SSID, STA_PASSWORD);
   }
 }
 
@@ -158,6 +182,7 @@ void networkTask(void *parameter) {
   uint32_t lastHousekeeping = 0;
   while (true) {
     gWebPortal.loop();
+    maintainWiFi();
     gTimeKeeper.trySyncFromNtp();
     gTimeKeeper.maybePersistSyncPoint();
 

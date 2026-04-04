@@ -27,6 +27,11 @@ class WebPortal {
     char mac[20];
   };
 
+  struct QueuedCommand {
+    uint8_t clientId;
+    char json[400];
+  };
+
   struct CommandContextGuard {
     explicit CommandContextGuard(WebPortal *portal) : portal_(portal) {}
     ~CommandContextGuard();
@@ -37,13 +42,17 @@ class WebPortal {
   void handleWsEvent(uint8_t clientId, WStype_t type, uint8_t *payload, size_t length);
   void onClientConnected(uint8_t clientId);
   void onClientDisconnected(uint8_t clientId);
+  bool enqueueInboundCommand(uint8_t clientId, const String &payload);
   void handleClientMessage(uint8_t clientId, const String &payload);
   void sendToClient(uint8_t clientId, const String &json);
   void broadcast(const String &json);
   void flushPendingToClient(uint8_t clientId);
   void sendCommandAck(uint8_t clientId, bool ok, const String &message);
   void pushStateSnapshot(uint8_t clientId);
+  void processInboundCommands();
   void processQueue();
+  void scheduleStateBroadcast();
+  void processPendingStateBroadcast();
   bool applyTimeSyncFromJson(const JsonDocument &doc, bool requireClockFields);
   // CAPTIVE PORTAL START
   void beginCaptivePortal();
@@ -76,11 +85,13 @@ class WebPortal {
   bool captivePortalEnabled_ = false;
   // CAPTIVE PORTAL END
   QueueHandle_t outboundQueue_ = nullptr;
+  QueueHandle_t inboundQueue_ = nullptr;
   SemaphoreHandle_t contextMutex_ = nullptr;
   std::array<bool, WS_MAX_CLIENTS> clients_{};
   std::array<String, WS_MAX_CLIENTS> clientMacs_{};
   uint16_t connectedClients_ = 0;
   uint32_t lastClientRefreshMs_ = 0;
+  bool stateBroadcastPending_ = false;
   bool commandContextActive_ = false;
   TaskHandle_t commandContextTask_ = nullptr;
   String commandContextMac_ = "SYSTEM";

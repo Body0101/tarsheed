@@ -40,17 +40,22 @@ void WebPortal::begin(ControlEngine *engine, StorageLayer *storage, TimeKeeper *
   storage_ = storage;
   timeKeeper_ = timeKeeper;
   outboundQueue_ = xQueueCreate(48, sizeof(QueuedEvent));
+  inboundQueue_ = xQueueCreate(24, sizeof(QueuedCommand));
   contextMutex_ = xSemaphoreCreateMutex();
   clients_.fill(false);
   clientMacs_.fill("");
   connectedClients_ = 0;
   lastClientRefreshMs_ = 0;
+  stateBroadcastPending_ = false;
 
   setupRoutes();
   server_.begin();
 
   instance_ = this;
   socket_.begin();
+  // Heartbeat disconnects stale sockets quickly so dead peers do not keep
+  // accumulating failed writes during bursts of events/commands.
+  socket_.enableHeartbeat(15000, 3500, 2);
   socket_.onEvent(onWsEventStatic);
   // CAPTIVE PORTAL START
   beginCaptivePortal();
@@ -71,7 +76,9 @@ void WebPortal::loop() {
     lastClientRefreshMs_ = millis();
     syncConnectedClients(true);
   }
+  processInboundCommands();
   processQueue();
+  processPendingStateBroadcast();
 }
 
 bool WebPortal::enqueueEvent(const String &eventJson, bool bufferIfOffline) {
@@ -92,6 +99,14 @@ bool WebPortal::enqueueEvent(const String &eventJson, bool bufferIfOffline) {
   }
   mac.substring(0, sizeof(queued.mac) - 1).toCharArray(queued.mac, sizeof(queued.mac));
 
+  if (xQueueSend(outboundQueue_, &queued, 0) == pdTRUE) {
+    return true;
+  }
+
+  // Keep the queue moving under bursts by dropping the oldest unsent event
+  // instead of blocking the network task or crashing the websocket callback.
+  QueuedEvent dropped{};
+  xQueueReceive(outboundQueue_, &dropped, 0);
   return xQueueSend(outboundQueue_, &queued, 0) == pdTRUE;
 }
 
@@ -175,7 +190,7 @@ void WebPortal::setupRoutes() {
     serializeJson(response, payload);
     server_.send(ok ? 200 : 400, "application/json", payload);
     if (ok) {
-      broadcast(engine_->buildStateJson());
+      scheduleStateBroadcast();
     }
   });
   // PIR MAPPING END
@@ -289,7 +304,7 @@ void WebPortal::handleWsEvent(uint8_t clientId, WStype_t type, uint8_t *payload,
       for (size_t i = 0; i < length; ++i) {
         message += static_cast<char>(payload[i]);
       }
-      handleClientMessage(clientId, message);
+      enqueueInboundCommand(clientId, message);
       break;
     }
     default:
@@ -366,6 +381,36 @@ void WebPortal::onClientDisconnected(uint8_t clientId) {
   enqueueEvent(eventLine, false);
 }
 
+bool WebPortal::enqueueInboundCommand(uint8_t clientId, const String &payload) {
+  if (!inboundQueue_) {
+    return false;
+  }
+
+  // get_state can be spammed by reconnects and UI refreshes. Coalesce it so
+  // status traffic does not starve higher-value control commands.
+  if (payload.indexOf("\"type\":\"get_state\"") >= 0 && stateBroadcastPending_) {
+    return true;
+  }
+
+  QueuedCommand queued{};
+  queued.clientId = clientId;
+  payload.substring(0, sizeof(queued.json) - 1).toCharArray(queued.json, sizeof(queued.json));
+
+  if (xQueueSend(inboundQueue_, &queued, 0) == pdTRUE) {
+    return true;
+  }
+
+  // When overloaded, prefer keeping the newest command and freeing space by
+  // dropping the oldest queued request rather than blocking the websocket loop.
+  QueuedCommand dropped{};
+  xQueueReceive(inboundQueue_, &dropped, 0);
+  const bool queuedOk = xQueueSend(inboundQueue_, &queued, 0) == pdTRUE;
+  if (!queuedOk && socket_.clientIsConnected(clientId)) {
+    sendCommandAck(clientId, false, "Controller busy, please retry.");
+  }
+  return queuedOk;
+}
+
 void WebPortal::handleClientMessage(uint8_t clientId, const String &payload) {
   setCommandContext(clientId);
   CommandContextGuard guard(this);
@@ -385,7 +430,7 @@ void WebPortal::handleClientMessage(uint8_t clientId, const String &payload) {
       return;
     }
     sendCommandAck(clientId, true, "Time synchronized.");
-    broadcast(engine_->buildStateJson());
+    scheduleStateBroadcast();
     return;
   }
 
@@ -406,7 +451,7 @@ void WebPortal::handleClientMessage(uint8_t clientId, const String &payload) {
     }
     sendCommandAck(clientId, ok, ok ? "Manual mode updated." : errorText);
     if (ok) {
-      broadcast(engine_->buildStateJson());
+      scheduleStateBroadcast();
     }
     return;
   }
@@ -439,7 +484,7 @@ void WebPortal::handleClientMessage(uint8_t clientId, const String &payload) {
     }
     sendCommandAck(clientId, ok, ok ? "Timer saved." : errorText);
     if (ok) {
-      broadcast(engine_->buildStateJson());
+      scheduleStateBroadcast();
     }
     return;
   }
@@ -449,7 +494,7 @@ void WebPortal::handleClientMessage(uint8_t clientId, const String &payload) {
     const bool ok = engine_->cancelTimer(channel);
     sendCommandAck(clientId, ok, ok ? "Timer canceled." : "No active timer on this relay.");
     if (ok) {
-      broadcast(engine_->buildStateJson());
+      scheduleStateBroadcast();
     }
     return;
   }
@@ -458,7 +503,7 @@ void WebPortal::handleClientMessage(uint8_t clientId, const String &payload) {
     const bool enabled = doc["enabled"] | false;
     engine_->setInterlock(enabled);
     sendCommandAck(clientId, true, "Interlock updated.");
-    broadcast(engine_->buildStateJson());
+    scheduleStateBroadcast();
     return;
   }
 
@@ -466,7 +511,7 @@ void WebPortal::handleClientMessage(uint8_t clientId, const String &payload) {
     const bool enabled = doc["enabled"] | false;
     engine_->setEnergyTrackingEnabled(enabled);
     sendCommandAck(clientId, true, String("Energy tracking ") + (enabled ? "enabled." : "disabled."));
-    broadcast(engine_->buildStateJson());
+    scheduleStateBroadcast();
     return;
   }
 
@@ -479,15 +524,34 @@ void WebPortal::handleClientMessage(uint8_t clientId, const String &payload) {
 }
 
 void WebPortal::sendToClient(uint8_t clientId, const String &json) {
+  if (clientId >= clients_.size()) {
+    return;
+  }
+  if (!socket_.clientIsConnected(clientId)) {
+    clients_[clientId] = false;
+    clientMacs_[clientId] = "";
+    syncConnectedClients(false);
+    return;
+  }
   // WebSockets API expects mutable String references.
   String payload = json;
-  socket_.sendTXT(clientId, payload);
+  if (!socket_.sendTXT(clientId, payload)) {
+    clients_[clientId] = false;
+    clientMacs_[clientId] = "";
+    socket_.disconnect(clientId);
+    syncConnectedClients(false);
+  }
 }
 
 void WebPortal::broadcast(const String &json) {
+  if (connectedClients_ == 0) {
+    return;
+  }
   // WebSockets API expects mutable String references.
   String payload = json;
-  socket_.broadcastTXT(payload);
+  if (!socket_.broadcastTXT(payload)) {
+    syncConnectedClients(false);
+  }
 }
 
 void WebPortal::flushPendingToClient(uint8_t clientId) {
@@ -508,13 +572,31 @@ void WebPortal::sendCommandAck(uint8_t clientId, bool ok, const String &message)
 
 void WebPortal::pushStateSnapshot(uint8_t clientId) { sendToClient(clientId, engine_->buildStateJson()); }
 
+void WebPortal::processInboundCommands() {
+  if (!inboundQueue_) {
+    return;
+  }
+
+  // Process only a bounded number of inbound websocket commands per loop so
+  // traffic spikes cannot monopolize the network task and starve Wi-Fi.
+  uint8_t processed = 0;
+  QueuedCommand queued{};
+  while (processed < 4 && xQueueReceive(inboundQueue_, &queued, 0) == pdTRUE) {
+    const String payload(queued.json);
+    handleClientMessage(queued.clientId, payload);
+    ++processed;
+  }
+}
+
 void WebPortal::processQueue() {
   if (!outboundQueue_) {
     return;
   }
 
+  bool snapshotNeeded = false;
+  uint8_t processed = 0;
   QueuedEvent queued{};
-  while (xQueueReceive(outboundQueue_, &queued, 0) == pdTRUE) {
+  while (processed < 6 && xQueueReceive(outboundQueue_, &queued, 0) == pdTRUE) {
     const String raw(queued.json);
     const String fallbackMac(queued.mac);
 
@@ -532,14 +614,27 @@ void WebPortal::processQueue() {
     if (connectedClients_ > 0) {
       broadcast(normalized);
       if (eventNeedsSnapshot(normalized)) {
-        broadcast(engine_->buildStateJson());
+        snapshotNeeded = true;
       }
-      continue;
-    }
-    if (queued.bufferIfOffline) {
+    } else if (queued.bufferIfOffline) {
       storage_->appendPending(normalized);
     }
+    ++processed;
   }
+
+  if (snapshotNeeded) {
+    scheduleStateBroadcast();
+  }
+}
+
+void WebPortal::scheduleStateBroadcast() { stateBroadcastPending_ = true; }
+
+void WebPortal::processPendingStateBroadcast() {
+  if (!stateBroadcastPending_ || connectedClients_ == 0) {
+    return;
+  }
+  stateBroadcastPending_ = false;
+  broadcast(engine_->buildStateJson());
 }
 
 bool WebPortal::applyTimeSyncFromJson(const JsonDocument &doc, bool requireClockFields) {
@@ -881,7 +976,7 @@ void WebPortal::syncConnectedClients(bool broadcastSnapshot) {
   // Push the authoritative state to every remaining client whenever the live
   // device count changes so all UIs stay aligned on mode/night-lock state.
   if (broadcastSnapshot && connectedClients_ > 0) {
-    broadcast(engine_->buildStateJson());
+    scheduleStateBroadcast();
   }
 }
 
