@@ -568,6 +568,73 @@
         width: 100%;
       }
     }
+
+      .footer {
+  margin-top: 30px;
+  padding: 20px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.footer-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+
+.footer-left {
+  text-align: left;
+}
+
+.logo {
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: var(--accent);
+}
+
+
+.footer-center {
+  text-align: center;
+  max-width: 400px;
+}
+
+.names {
+  font-weight: bold;
+  margin-top: 5px;
+}
+
+
+.footer-right {
+  text-align: right;
+}
+
+.footer-right a {
+  display: block;
+  color: var(--accent);
+  text-decoration: none;
+  margin-top: 4px;
+}
+
+.footer-right a:hover {
+  text-decoration: underline;
+}
+
+/*  Responsive */
+@media (max-width: 768px) {
+  .footer-container {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .footer-left,
+  .footer-right {
+    text-align: center;
+  }
+}
   </style>
 </head>
 <body>
@@ -683,19 +750,39 @@
 
   <div id="toast" class="toast"></div>
 
-   <footer style="text-align:center; margin-top:20px; font-size:0.8rem; color:var(--muted);">
-    <hr style="margin:12px 0; border-color:var(--border);">
-    <div>
-      © 2026 <strong>HomeCore</strong>. All rights reserved.
-    </div>
-    <div>
-      Developed by <strong> Basel Wael , AbdulRahman Saber , Amr Mohamed , Salma Ebrahim , Joury ELHamrawy ,AbdulRahman , Rawan , Belal </strong>
-    </div>
-    <div>
-      Contact: <a href="mailto:homecore@ics.tanta.edu.eg" style="color:var(--accent); text-decoration:none;">homecore@ics.tanta.edu.eg</a>
-    </div>
-  </footer>
+   
+    <footer class="footer">
+  <div class="footer-container">
 
+   
+    <div class="footer-left">
+      <div class="logo">🏠 HomeCore</div>
+      <div class="copyright">
+        © 2026 HomeCore
+      </div>
+    </div>
+
+   
+    <div class="footer-center">
+      Developed by
+      <div class="names">
+        Basel Wael , AbdulRahman Saber , Amr Mohamed , Salma Ebrahim ,
+        Joury ELHamrawy , AbdulRahman Salah , Rawan Nosser ,
+        Bilal Mohammed , Saleh Abotaka , Shimaa Abotaleb
+      </div>
+    </div>
+
+    
+    <div class="footer-right">
+      <div class="contact-title">Contact</div>
+      <div class="links">
+        <a href="https://github.com/Body0101/Playground" target="_blank">GitHub</a>
+        <a href="mailto:homecore@ics.tanta.edu.eg?subject=HomeCore%20Project&body=Hello%20HomeCore%20Team," target="_blank">Email</a>
+      </div>
+    </div>
+
+  </div>
+</footer>
 
   <script>
     /* ==========================================
