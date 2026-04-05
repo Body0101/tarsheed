@@ -744,6 +744,7 @@
     let socketReady = false;
     let state = null;
     let reconnectHandle = null;
+    let reconnectDelayMs = 1800;
     let serverTimeOffsetSec = 0;
 
     /* ==========================================
@@ -850,7 +851,9 @@
     }
 
     function updateNightLockUi() {
-      // Keep ON actions disabled in UI while backend night lock is active.
+      // Night Lock is enforced on the ESP32 backend. The UI mirrors those
+      // backend restrictions so users do not keep sending commands that will
+      // be rejected while automation is frozen in safe OFF mode.
       const lock = isNightLockActive();
       const onOption = timerTarget.querySelector('option[value="ON"]');
       if (onOption) {
@@ -859,7 +862,17 @@
       if (lock && timerTarget.value === "ON") {
         timerTarget.value = "OFF";
       }
-      startTimerBtn.disabled = lock && timerTarget.value === "ON";
+      timerChannel.disabled = lock;
+      timerMinutes.disabled = lock;
+      timerTarget.disabled = lock;
+      startTimerBtn.disabled = lock;
+      interlockToggle.disabled = lock;
+      energyTrackingToggle.disabled = lock;
+      savePirMappingBtn.disabled = lock;
+      resetConsumptionBtn.disabled = lock;
+      pirMappingList.querySelectorAll("input").forEach((input) => {
+        input.disabled = lock;
+      });
     }
 
     function escapeHtml(text) {
@@ -900,15 +913,16 @@
     /* PIR UI START */
     function renderPirMapping() {
       if (!state || !Array.isArray(state.pirs)) return;
+      const nightLocked = isNightLockActive();
       pirMappingList.innerHTML = state.pirs.map((pir) => `
         <div class="mapping-row">
           <div class="mapping-label">${pir.name}</div>
           <label class="mapping-check">
-            <input id="pir${pir.index}RelayA" type="checkbox" ${pir.relayA ? "checked" : ""}>
+            <input id="pir${pir.index}RelayA" type="checkbox" ${pir.relayA ? "checked" : ""} ${nightLocked ? "disabled" : ""}>
             Relay A
           </label>
           <label class="mapping-check">
-            <input id="pir${pir.index}RelayB" type="checkbox" ${pir.relayB ? "checked" : ""}>
+            <input id="pir${pir.index}RelayB" type="checkbox" ${pir.relayB ? "checked" : ""} ${nightLocked ? "disabled" : ""}>
             Relay B
           </label>
         </div>
@@ -949,6 +963,7 @@
     function renderPower() {
       if (!state || !Array.isArray(state.relays)) return;
       const enabled = !!state.energyTrackingEnabled;
+      const nightLocked = isNightLockActive();
       powerDisabledText.style.display = enabled ? "none" : "block";
       powerActions.style.display = enabled ? "flex" : "none";
       powerList.style.display = "grid";
@@ -966,11 +981,11 @@
             <!-- RATED DYNAMIC START -->
             <label class="field" style="margin:8px 0 10px;">
               Rated Power (W)
-              <input id="ratedPower${relay.index}" type="number" min="0.1" step="0.1" value="${powerW.toFixed(1)}" ${powerLocked ? "disabled" : ""}>
+              <input id="ratedPower${relay.index}" type="number" min="0.1" step="0.1" value="${powerW.toFixed(1)}" ${(powerLocked || nightLocked) ? "disabled" : ""}>
             </label>
             <div class="meta" style="margin-bottom:8px;">Rated power can only be set once</div>
             <div class="actions" style="margin-bottom:8px;">
-              <button type="button" onclick="saveRatedPower(${relay.index})" ${powerLocked ? "disabled" : ""}>Save Rated Power</button>
+              <button type="button" onclick="saveRatedPower(${relay.index})" ${(powerLocked || nightLocked) ? "disabled" : ""}>Save Rated Power</button>
             </div>
             <!-- RATED DYNAMIC END -->
             Last Timer Energy: ${lastWh.toFixed(3)} Wh<br>
@@ -1050,10 +1065,23 @@
     function sendWs(payload) {
       if (!socketReady || !socket) {
         showToast("WebSocket offline, reconnecting...");
+        scheduleSocketReconnect();
         return false;
       }
       socket.send(JSON.stringify(payload));
       return true;
+    }
+
+    function scheduleSocketReconnect() {
+      if (reconnectHandle) {
+        return;
+      }
+      const waitMs = reconnectDelayMs;
+      reconnectHandle = setTimeout(() => {
+        reconnectHandle = null;
+        connectSocket();
+      }, waitMs);
+      reconnectDelayMs = Math.min(reconnectDelayMs * 2, 10000);
     }
 
     function buildDeviceTimePayload() {
@@ -1129,6 +1157,10 @@
     /* PIR UI START */
     async function savePirMapping() {
       if (!state || !Array.isArray(state.pirs)) return;
+      if (isNightLockActive()) {
+        showToast("Night Lock Active");
+        return;
+      }
 
       const mappings = state.pirs.map((pir) => ({
         relayA: !!document.getElementById(`pir${pir.index}RelayA`)?.checked,
@@ -1158,6 +1190,10 @@
 
     // POWER RESET START
     async function resetConsumption() {
+      if (isNightLockActive()) {
+        showToast("Night Lock Active");
+        return;
+      }
       try {
         const response = await fetch("/api/resetConsumption", { method: "POST" });
         const data = await response.json();
@@ -1174,6 +1210,10 @@
 
     // RATED DYNAMIC START
     window.saveRatedPower = async (channel) => {
+      if (isNightLockActive()) {
+        showToast("Night Lock Active");
+        return;
+      }
       const input = document.getElementById(`ratedPower${channel}`);
       if (!input) return;
 
@@ -1273,12 +1313,22 @@
     }
 
     function connectSocket() {
-      if (socket) socket.close();
+      if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+      if (socket && socket.readyState === WebSocket.CLOSING) {
+        return;
+      }
       const protocol = location.protocol === "https:" ? "wss" : "ws";
       socket = new WebSocket(`${protocol}://${location.hostname}:81/`);
 
       socket.addEventListener("open", () => {
         socketReady = true;
+        reconnectDelayMs = 1800;
+        if (reconnectHandle) {
+          clearTimeout(reconnectHandle);
+          reconnectHandle = null;
+        }
         setConnectionStatus(true);
 
         sendWs({ type: "time_sync", ...buildDeviceTimePayload() });
@@ -1295,15 +1345,16 @@
 
       socket.addEventListener("message", (event) => handleSocketMessage(event.data));
 
+      socket.addEventListener("error", () => {
+        if (socket && socket.readyState !== WebSocket.CLOSED) {
+          socket.close();
+        }
+      });
+
       socket.addEventListener("close", () => {
         socketReady = false;
         setConnectionStatus(false);
-        if (!reconnectHandle) {
-          reconnectHandle = setTimeout(() => {
-            reconnectHandle = null;
-            connectSocket();
-          }, 1800);
-        }
+        scheduleSocketReconnect();
       });
     }
 
@@ -1330,8 +1381,9 @@
       const channel = Number(timerChannel.value);
       const minutes = Number(timerMinutes.value);
       const target = timerTarget.value;
-      // Timer ON target is disallowed during night lock; OFF timers remain allowed.
-      if (isNightLockActive() && target === "ON") {
+      // Backend blocks timer creation while Night Lock is active; the UI mirrors
+      // the same rule to keep the interaction predictable.
+      if (isNightLockActive()) {
         showToast("Night Lock Active");
         return;
       }
@@ -1352,10 +1404,20 @@
     });
 
     interlockToggle.addEventListener("change", () => {
+      if (isNightLockActive()) {
+        interlockToggle.checked = !!(state && state.interlock);
+        showToast("Night Lock Active");
+        return;
+      }
       sendWs({ type: "set_interlock", enabled: interlockToggle.checked });
     });
 
     energyTrackingToggle.addEventListener("change", () => {
+      if (isNightLockActive()) {
+        energyTrackingToggle.checked = !!(state && state.energyTrackingEnabled);
+        showToast("Night Lock Active");
+        return;
+      }
       sendWs({ type: "set_energy_tracking", enabled: energyTrackingToggle.checked });
     });
 
@@ -1382,6 +1444,17 @@
 
     themeToggle.addEventListener("click", () => {
       ThemeManager.toggle();
+    });
+
+    window.addEventListener("online", () => {
+      reconnectDelayMs = 1800;
+      connectSocket();
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && !socketReady) {
+        connectSocket();
+      }
     });
 
     /* ==========================================

@@ -233,13 +233,12 @@ bool ControlEngine::setTimer(size_t relayIndex, uint32_t durationMinutes, RelayS
       return;
     }
 
-    if (runtime_->nightLockActive && targetState == RelayState::ON) {
-      if (error) *error = "Night Lock Active";
-      publishEventLocked("ERROR",
-                         "timer.blocked_night_lock",
-                         "Command Blocked by Night Lock",
-                         static_cast<int>(relayIndex),
-                         true);
+    // Night Lock freezes timer creation entirely so no queued automation can
+    // slip through from a stale UI while the system is forced into safe OFF mode.
+    if (blockNightLockFeatureLocked("timer.blocked_night_lock",
+                                    "Command Blocked by Night Lock",
+                                    static_cast<int>(relayIndex),
+                                    error)) {
       return;
     }
 
@@ -352,6 +351,12 @@ bool ControlEngine::setPirMapping(const PIRMapping mappings[PIR_COUNT], String *
 
   bool updated = false;
   withLock([&]() {
+    if (blockNightLockFeatureLocked("pir_mapping.blocked_night_lock",
+                                    "PIR mapping change blocked by Night Lock",
+                                    -1,
+                                    error)) {
+      return;
+    }
     for (size_t i = 0; i < PIR_COUNT; ++i) {
       runtime_->pirMap[i] = mappings[i];
       storage_->persistPirMapping(i, runtime_->pirMap[i]);
@@ -370,6 +375,12 @@ bool ControlEngine::setPirMapping(const PIRMapping mappings[PIR_COUNT], String *
 bool ControlEngine::resetConsumption(String *error) {
   bool reset = false;
   withLock([&]() {
+    if (blockNightLockFeatureLocked("consumption.blocked_night_lock",
+                                    "Power consumption reset blocked by Night Lock",
+                                    -1,
+                                    error)) {
+      return;
+    }
     const uint64_t nowEpoch = nowEpochLocked();
 
     // Clear only consumption-related counters. Relay modes, timers, and settings stay untouched.
@@ -414,6 +425,12 @@ bool ControlEngine::setRatedPower(size_t relayIndex, float watts, String *error)
 
   bool updated = false;
   withLock([&]() {
+    if (blockNightLockFeatureLocked("rated_power.blocked_night_lock",
+                                    "Rated power change blocked by Night Lock",
+                                    static_cast<int>(relayIndex),
+                                    error)) {
+      return;
+    }
     RelayRuntime &relay = runtime_->relays[relayIndex];
     if (relay.ratedPowerLocked && !ALLOW_RATED_RESET) {
       if (error) *error = "Rated power is already locked.";
@@ -433,8 +450,19 @@ bool ControlEngine::setRatedPower(size_t relayIndex, float watts, String *error)
 }
 // RATED DYNAMIC END
 
-void ControlEngine::setInterlock(bool enabled) {
+bool ControlEngine::setInterlock(bool enabled, String *error) {
+  bool updated = false;
   withLock([&]() {
+    if (blockNightLockFeatureLocked("interlock.blocked_night_lock",
+                                    "Interlock change blocked by Night Lock",
+                                    -1,
+                                    error)) {
+      return;
+    }
+    if (runtime_->interlockEnabled == enabled) {
+      updated = true;
+      return;
+    }
     runtime_->interlockEnabled = enabled;
     storage_->persistInterlock(enabled);
     publishEventLocked("TIMER",
@@ -442,12 +470,25 @@ void ControlEngine::setInterlock(bool enabled) {
                        String("Interlock ") + (enabled ? "enabled." : "disabled."),
                        -1,
                        true);
+    updated = true;
   });
+  if (!updated && error && error->isEmpty()) {
+    *error = "Could not update interlock.";
+  }
+  return updated;
 }
 
-void ControlEngine::setEnergyTrackingEnabled(bool enabled) {
+bool ControlEngine::setEnergyTrackingEnabled(bool enabled, String *error) {
+  bool updated = false;
   withLock([&]() {
+    if (blockNightLockFeatureLocked("energy_tracking.blocked_night_lock",
+                                    "Energy tracking change blocked by Night Lock",
+                                    -1,
+                                    error)) {
+      return;
+    }
     if (runtime_->energyTrackingEnabled == enabled) {
+      updated = true;
       return;
     }
     runtime_->energyTrackingEnabled = enabled;
@@ -465,7 +506,12 @@ void ControlEngine::setEnergyTrackingEnabled(bool enabled) {
                        String("Energy tracking ") + (enabled ? "enabled." : "disabled."),
                        -1,
                        true);
+    updated = true;
   });
+  if (!updated && error && error->isEmpty()) {
+    *error = "Could not update energy tracking.";
+  }
+  return updated;
 }
 
 void ControlEngine::updateConnectedClients(uint16_t clients) {
@@ -596,6 +642,20 @@ String ControlEngine::buildTimerJson(size_t relayIndex) const {
     serializeJson(doc, payload);
   });
   return payload;
+}
+
+bool ControlEngine::blockNightLockFeatureLocked(const String &eventName,
+                                                const String &message,
+                                                int channel,
+                                                String *error) const {
+  if (!runtime_->nightLockActive) {
+    return false;
+  }
+  if (error) {
+    *error = "Night Lock Active";
+  }
+  publishEventLocked("ERROR", eventName, message, channel, true);
+  return true;
 }
 
 uint64_t ControlEngine::nowEpochLocked() const {

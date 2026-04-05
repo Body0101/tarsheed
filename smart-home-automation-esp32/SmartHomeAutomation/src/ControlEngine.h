@@ -30,8 +30,8 @@ class ControlEngine {
   // RATED DYNAMIC START
   bool setRatedPower(size_t relayIndex, float watts, String *error);
   // RATED DYNAMIC END
-  void setInterlock(bool enabled);
-  void setEnergyTrackingEnabled(bool enabled);
+  bool setInterlock(bool enabled, String *error = nullptr);
+  bool setEnergyTrackingEnabled(bool enabled, String *error = nullptr);
   void updateConnectedClients(uint16_t clients);
 
   String buildStateJson() const;
@@ -54,6 +54,7 @@ class ControlEngine {
   void finalizeEnergyTrackingLocked(size_t relayIndex, RelayRuntime &relay, uint64_t nowEpoch, const String &stopEvent);
   void clearEnergyTrackingLocked(RelayRuntime &relay);
   void publishEnergyUpdateLocked(size_t relayIndex, float lastWh, float totalWh) const;
+  bool blockNightLockFeatureLocked(const String &eventName, const String &message, int channel, String *error) const;
   uint64_t nowEpochLocked() const;
   bool canTurnOnLocked() const;
   void processPirInputsLocked(uint64_t nowEpoch);

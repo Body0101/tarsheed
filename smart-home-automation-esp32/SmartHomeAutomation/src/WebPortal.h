@@ -56,6 +56,9 @@ class WebPortal {
   bool applyTimeSyncFromJson(const JsonDocument &doc, bool requireClockFields);
   // CAPTIVE PORTAL START
   void beginCaptivePortal();
+  void ensureCaptivePortal();
+  String captivePortalUrl() const;
+  bool shouldRedirectToCaptivePortal();
   void sendCaptivePortalResponse(int httpCode);
   // CAPTIVE PORTAL END
   String normalizeLogPayload(const String &rawJson, const String &fallbackMac) const;
@@ -83,6 +86,7 @@ class WebPortal {
   // CAPTIVE PORTAL START
   DNSServer dnsServer_;
   bool captivePortalEnabled_ = false;
+  IPAddress captivePortalIp_{0, 0, 0, 0};
   // CAPTIVE PORTAL END
   QueueHandle_t outboundQueue_ = nullptr;
   QueueHandle_t inboundQueue_ = nullptr;

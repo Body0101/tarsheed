@@ -64,6 +64,7 @@ void WebPortal::begin(ControlEngine *engine, StorageLayer *storage, TimeKeeper *
 
 void WebPortal::loop() {
   // CAPTIVE PORTAL START
+  ensureCaptivePortal();
   if (captivePortalEnabled_) {
     dnsServer_.processNextRequest();
   }
@@ -115,15 +116,25 @@ uint16_t WebPortal::connectedClientCount() const { return connectedClients_; }
 void WebPortal::setupRoutes() {
   // CAPTIVE PORTAL START
   auto captiveProbeHandler = [this]() { sendCaptivePortalResponse(200); };
+  server_.on("/fwlink", HTTP_ANY, captiveProbeHandler);
   server_.on("/generate_204", HTTP_ANY, captiveProbeHandler);
   server_.on("/gen_204", HTTP_ANY, captiveProbeHandler);
   server_.on("/hotspot-detect.html", HTTP_ANY, captiveProbeHandler);
   server_.on("/connecttest.txt", HTTP_ANY, captiveProbeHandler);
+  server_.on("/library/test/success.html", HTTP_ANY, captiveProbeHandler);
+  server_.on("/success.txt", HTTP_ANY, captiveProbeHandler);
+  server_.on("/canonical.html", HTTP_ANY, captiveProbeHandler);
   server_.on("/redirect", HTTP_ANY, captiveProbeHandler);
   server_.on("/ncsi.txt", HTTP_ANY, captiveProbeHandler);
   // CAPTIVE PORTAL END
 
   server_.on("/", HTTP_GET, [this]() {
+    // If a phone or desktop browser requested some external host that DNS
+    // hijacked back to the ESP32, bounce it to the actual SoftAP URL.
+    if (shouldRedirectToCaptivePortal()) {
+      sendCaptivePortalResponse(302);
+      return;
+    }
     File file = LittleFS.open("/index.html", FILE_READ);
     if (!file) {
       server_.send(500, "text/plain", "Missing /index.html on LittleFS.");
@@ -263,28 +274,82 @@ void WebPortal::setupRoutes() {
 void WebPortal::beginCaptivePortal() {
   const IPAddress apIp = WiFi.softAPIP();
   if (apIp == IPAddress(0, 0, 0, 0)) {
+    captivePortalEnabled_ = false;
+    captivePortalIp_ = IPAddress(0, 0, 0, 0);
     return;
   }
 
+  dnsServer_.stop();
   dnsServer_.setErrorReplyCode(DNSReplyCode::NoError);
+  captivePortalIp_ = apIp;
   captivePortalEnabled_ = dnsServer_.start(53, "*", apIp);
 }
 
+void WebPortal::ensureCaptivePortal() {
+  const IPAddress apIp = WiFi.softAPIP();
+  if (apIp == IPAddress(0, 0, 0, 0)) {
+    if (captivePortalEnabled_) {
+      dnsServer_.stop();
+      captivePortalEnabled_ = false;
+      captivePortalIp_ = IPAddress(0, 0, 0, 0);
+    }
+    return;
+  }
+
+  // Restart DNS hijack automatically after AP restarts or IP changes so
+  // captive redirection stays reliable without rebooting the ESP32.
+  if (!captivePortalEnabled_ || captivePortalIp_ != apIp) {
+    beginCaptivePortal();
+  }
+}
+
+String WebPortal::captivePortalUrl() const {
+  const IPAddress apIp = WiFi.softAPIP();
+  if (apIp == IPAddress(0, 0, 0, 0)) {
+    return "http://192.168.4.1/";
+  }
+  return String("http://") + apIp.toString() + "/";
+}
+
+bool WebPortal::shouldRedirectToCaptivePortal() {
+  const String host = server_.hostHeader();
+  if (host.isEmpty()) {
+    return false;
+  }
+
+  const String apIp = WiFi.softAPIP().toString();
+  if (host.equalsIgnoreCase(apIp) || host.equalsIgnoreCase(apIp + ":80")) {
+    return false;
+  }
+  if (host.equalsIgnoreCase("localhost") || host.equalsIgnoreCase("esp32") || host.equalsIgnoreCase("esp32.local")) {
+    return false;
+  }
+  return true;
+}
+
 void WebPortal::sendCaptivePortalResponse(int httpCode) {
+  const String redirectUrl = captivePortalUrl();
   server_.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate", true);
   server_.sendHeader("Pragma", "no-cache", true);
   server_.sendHeader("Expires", "0", true);
   if (httpCode >= 300 && httpCode < 400) {
-    server_.sendHeader("Location", "/", true);
+    server_.sendHeader("Location", redirectUrl, true);
   }
 
-  const char html[] PROGMEM =
-      "<!doctype html><html><head><meta charset='utf-8'>"
-      "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-      "<meta http-equiv='refresh' content='0; url=/'>"
-      "<title>ESP32 Portal</title></head><body>"
-      "<script>window.location.href='/'</script>"
-      "<p>Opening portal...</p></body></html>";
+  String html;
+  html.reserve(320);
+  html += "<!doctype html><html><head><meta charset='utf-8'>";
+  html += "<meta name='viewport' content='width=device-width,initial-scale=1'>";
+  html += "<meta http-equiv='refresh' content='0; url=";
+  html += redirectUrl;
+  html += "'>";
+  html += "<title>ESP32 Portal</title></head><body>";
+  html += "<script>window.location.replace('";
+  html += redirectUrl;
+  html += "');</script>";
+  html += "<p>Opening portal... <a href='";
+  html += redirectUrl;
+  html += "'>Continue</a></p></body></html>";
 
   server_.send(httpCode, "text/html", html);
 }
@@ -473,7 +538,8 @@ void WebPortal::handleClientMessage(uint8_t clientId, const String &payload) {
     String errorText;
     const bool ok = engine_->setTimer(channel, durationMinutes, target, &errorText);
     if (!ok && errorText == "Night Lock Active") {
-      // Explicit reject payload requested by frontend for ON timer targets during night lock.
+      // Explicit reject payload requested by frontend when Night Lock blocks
+      // timer creation entirely on the backend.
       JsonDocument errDoc;
       errDoc["error"] = "Night Lock Active";
       String errPayload;
@@ -501,17 +567,23 @@ void WebPortal::handleClientMessage(uint8_t clientId, const String &payload) {
 
   if (type == "set_interlock") {
     const bool enabled = doc["enabled"] | false;
-    engine_->setInterlock(enabled);
-    sendCommandAck(clientId, true, "Interlock updated.");
-    scheduleStateBroadcast();
+    String errorText;
+    const bool ok = engine_->setInterlock(enabled, &errorText);
+    sendCommandAck(clientId, ok, ok ? "Interlock updated." : errorText);
+    if (ok) {
+      scheduleStateBroadcast();
+    }
     return;
   }
 
   if (type == "set_energy_tracking") {
     const bool enabled = doc["enabled"] | false;
-    engine_->setEnergyTrackingEnabled(enabled);
-    sendCommandAck(clientId, true, String("Energy tracking ") + (enabled ? "enabled." : "disabled."));
-    scheduleStateBroadcast();
+    String errorText;
+    const bool ok = engine_->setEnergyTrackingEnabled(enabled, &errorText);
+    sendCommandAck(clientId, ok, ok ? String("Energy tracking ") + (enabled ? "enabled." : "disabled.") : errorText);
+    if (ok) {
+      scheduleStateBroadcast();
+    }
     return;
   }
 

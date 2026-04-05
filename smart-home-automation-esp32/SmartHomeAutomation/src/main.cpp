@@ -109,9 +109,13 @@ void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
 
 void setupWiFi() {
   WiFi.mode(WIFI_AP_STA);
+  // Keep credentials/runtime Wi-Fi state in RAM only so reconnect attempts do
+  // not generate extra flash churn or stale network state across brownouts.
+  WiFi.persistent(false);
   // Disable Wi-Fi sleep so websocket and AP responsiveness stay stable under
   // bursts of commands and frequent browser interaction.
   WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);
   WiFi.onEvent(onWiFiEvent);
 
   const bool apOk = WiFi.softAP(AP_SSID, AP_PASSWORD);
@@ -137,6 +141,10 @@ void maintainWiFi() {
   if (nowMs - lastApCheckMs >= 2500UL) {
     lastApCheckMs = nowMs;
     if (WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) {
+      // Re-assert the AP mode before restart so the captive portal and websocket
+      // server stay reachable even after transient Wi-Fi stack faults.
+      WiFi.mode(WIFI_AP_STA);
+      WiFi.setSleep(false);
       if (WiFi.softAP(AP_SSID, AP_PASSWORD)) {
         pushSystemEvent("wifi.ap_restarted", "SoftAP restarted automatically after a connection failure.", false, true);
       }
@@ -145,8 +153,13 @@ void maintainWiFi() {
 
   if (strlen(STA_SSID) > 0 && WiFi.status() != WL_CONNECTED && (nowMs - lastStaReconnectMs) >= 10000UL) {
     lastStaReconnectMs = nowMs;
-    WiFi.disconnect(false, false);
-    WiFi.begin(STA_SSID, STA_PASSWORD);
+    // Retry STA reconnection without blocking the network task. A soft reconnect
+    // is attempted first, then a full begin() refresh if the station is still down.
+    WiFi.reconnect();
+    if (WiFi.status() != WL_CONNECTED) {
+      WiFi.disconnect(false, false);
+      WiFi.begin(STA_SSID, STA_PASSWORD);
+    }
   }
 }
 

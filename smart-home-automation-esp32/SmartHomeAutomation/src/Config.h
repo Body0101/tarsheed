@@ -33,7 +33,7 @@ constexpr PirConfig PIR_CONFIG[PIR_COUNT] = {
 constexpr uint32_t CONTROL_TASK_PERIOD_MS = 50;
 constexpr uint32_t WEB_TASK_PERIOD_MS = 10;
 constexpr uint32_t PIR_DEBOUNCE_MS = 180;
-constexpr uint32_t PIR_HOLD_SECONDS = 20;
+constexpr uint32_t PIR_HOLD_SECONDS = 30;
 constexpr uint32_t HOUSEKEEPING_PERIOD_MS = 1500;
 
 constexpr uint32_t LOG_MAX_BYTES = 120 * 1024;
