@@ -86,9 +86,6 @@ void ControlEngine::tickFast() {
     for (size_t i = 0; i < RELAY_COUNT; ++i) {
       decisions[i] = evaluateRelayLocked(i, nowEpoch);
     }
-    if (runtime_->interlockEnabled) {
-      applyInterlockLocked(&decisions[0], &decisions[1]);
-    }
     applyDecisionsLocked(decisions, nowEpoch);
   });
 }
@@ -157,25 +154,6 @@ bool ControlEngine::setManualMode(size_t relayIndex, RelayMode mode, String *err
       if (error) *error = "Night mode blocks ON actions.";
       publishEventLocked("ERROR", "manual.blocked", "Manual ON blocked by night mode.", static_cast<int>(relayIndex), true);
       return;
-    }
-
-    // Interlock must reject conflicting manual ON commands on the backend too,
-    // so every client sees the same authoritative behavior.
-    if (mode == RelayMode::ON && runtime_->interlockEnabled) {
-      for (size_t i = 0; i < RELAY_COUNT; ++i) {
-        if (i == relayIndex) {
-          continue;
-        }
-        if (runtime_->relays[i].appliedState == RelayState::ON) {
-          if (error) *error = "Interlock Active";
-          publishEventLocked("ERROR",
-                             "manual.blocked_interlock",
-                             "Manual ON blocked by interlock because another relay is already ON.",
-                             static_cast<int>(relayIndex),
-                             true);
-          return;
-        }
-      }
     }
 
     // Manual ON/OFF should immediately override any running timer.
@@ -450,34 +428,6 @@ bool ControlEngine::setRatedPower(size_t relayIndex, float watts, String *error)
 }
 // RATED DYNAMIC END
 
-bool ControlEngine::setInterlock(bool enabled, String *error) {
-  bool updated = false;
-  withLock([&]() {
-    if (blockNightLockFeatureLocked("interlock.blocked_night_lock",
-                                    "Interlock change blocked by Night Lock",
-                                    -1,
-                                    error)) {
-      return;
-    }
-    if (runtime_->interlockEnabled == enabled) {
-      updated = true;
-      return;
-    }
-    runtime_->interlockEnabled = enabled;
-    storage_->persistInterlock(enabled);
-    publishEventLocked("TIMER",
-                       "interlock.changed",
-                       String("Interlock ") + (enabled ? "enabled." : "disabled."),
-                       -1,
-                       true);
-    updated = true;
-  });
-  if (!updated && error && error->isEmpty()) {
-    *error = "Could not update interlock.";
-  }
-  return updated;
-}
-
 bool ControlEngine::setEnergyTrackingEnabled(bool enabled, String *error) {
   bool updated = false;
   withLock([&]() {
@@ -566,7 +516,6 @@ String ControlEngine::buildStateJson() const {
     } else {
       doc["systemMode"] = "AUTO";
     }
-    doc["interlock"] = runtime_->interlockEnabled;
     doc["energyTrackingEnabled"] = runtime_->energyTrackingEnabled;
     doc["nightLock"] = runtime_->nightLockActive;
     JsonArray relays = doc["relays"].to<JsonArray>();
@@ -574,13 +523,6 @@ String ControlEngine::buildStateJson() const {
       JsonObject relay = relays.add<JsonObject>();
       const RelayRuntime &r = runtime_->relays[i];
       const uint64_t onSeconds = effectiveOnSecondsLocked(r, nowEpoch);
-      bool otherRelayOn = false;
-      for (size_t other = 0; other < RELAY_COUNT; ++other) {
-        if (other != i && runtime_->relays[other].appliedState == RelayState::ON) {
-          otherRelayOn = true;
-          break;
-        }
-      }
       relay["index"] = i;
       relay["name"] = RELAY_CONFIG[i].name;
       relay["state"] = relayStateToText(r.appliedState);
@@ -602,9 +544,6 @@ String ControlEngine::buildStateJson() const {
       relay["powerW"] = r.ratedPowerWatts;
       relay["powerLocked"] = r.ratedPowerLocked;
       // RATED DYNAMIC END
-      // Interlock UI state is derived on the ESP32 so all clients receive the
-      // same disabled-button decision from one authoritative source.
-      relay["interlockBlocked"] = runtime_->interlockEnabled && otherRelayOn && r.appliedState != RelayState::ON;
     }
     JsonArray pirs = doc["pirs"].to<JsonArray>();
     for (size_t i = 0; i < PIR_COUNT; ++i) {
@@ -823,37 +762,6 @@ ControlEngine::Decision ControlEngine::evaluateRelayLocked(size_t relayIndex, ui
   return out;
 }
 
-void ControlEngine::applyInterlockLocked(Decision *d0, Decision *d1) {
-  if (!d0 || !d1) {
-    return;
-  }
-  if (d0->state != RelayState::ON || d1->state != RelayState::ON) {
-    return;
-  }
-
-  const uint8_t p0 = sourcePriority(d0->source);
-  const uint8_t p1 = sourcePriority(d1->source);
-  if (p0 > p1) {
-    d1->state = RelayState::OFF;
-    d1->source = ControlSource::NONE;
-    return;
-  }
-  if (p1 > p0) {
-    d0->state = RelayState::OFF;
-    d0->source = ControlSource::NONE;
-    return;
-  }
-
-  // If equal priority, keep the relay that was already ON.
-  if (runtime_->relays[0].appliedState == RelayState::ON && runtime_->relays[1].appliedState == RelayState::OFF) {
-    d1->state = RelayState::OFF;
-    d1->source = ControlSource::NONE;
-  } else {
-    d0->state = RelayState::OFF;
-    d0->source = ControlSource::NONE;
-  }
-}
-
 void ControlEngine::applyDecisionsLocked(const Decision decisions[RELAY_COUNT], uint64_t nowEpoch) {
   for (size_t i = 0; i < RELAY_COUNT; ++i) {
     RelayRuntime &relay = runtime_->relays[i];
@@ -1065,17 +973,4 @@ bool ControlEngine::withLock(const std::function<void()> &fn) const {
   fn();
   xSemaphoreGive(stateMutex_);
   return true;
-}
-
-uint8_t ControlEngine::sourcePriority(ControlSource source) {
-  switch (source) {
-    case ControlSource::MANUAL:
-      return 3;
-    case ControlSource::TIMER:
-      return 2;
-    case ControlSource::PIR:
-      return 1;
-    default:
-      return 0;
-  }
 }

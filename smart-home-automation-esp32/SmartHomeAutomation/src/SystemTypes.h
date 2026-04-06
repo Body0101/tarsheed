@@ -75,7 +75,6 @@ struct SystemRuntime {
   // PIR MAPPING START
   PIRMapping pirMap[PIR_COUNT];
   // PIR MAPPING END
-  bool interlockEnabled;
   bool energyTrackingEnabled;
   uint16_t connectedClients;
   DayPhase dayPhase;

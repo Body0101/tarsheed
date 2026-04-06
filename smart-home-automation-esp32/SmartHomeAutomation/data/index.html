@@ -724,13 +724,9 @@ span{
       </article>
 
       <article class="panel half">
-        <h2>Day/Night + Interlock</h2>
+        <h2>Day/Night + Settings</h2>
         <div class="settings-grid">
           <div id="dayNightText" class="meta">Day mode: 06:00-18:00 | Night mode: 18:00-06:00</div>
-          <label class="toggle">
-            <input id="interlockToggle" type="checkbox">
-            Enable interlock (only one relay ON at a time)
-          </label>
           <label class="toggle">
             <input id="energyTrackingToggle" type="checkbox">
             Enable timer-only energy tracking
@@ -839,7 +835,6 @@ span{
       "timer.ended",
       "timer.canceled",
       "manual.changed",
-      "interlock.changed",
       "mode.changed",
       "pir.motion",
       "pir.idle",
@@ -876,7 +871,6 @@ span{
     const timerTarget = document.getElementById("timerTarget");
     const startTimerBtn = document.getElementById("startTimerBtn");
     const cancelTimerBtn = document.getElementById("cancelTimerBtn");
-    const interlockToggle = document.getElementById("interlockToggle");
     const energyTrackingToggle = document.getElementById("energyTrackingToggle");
     const refreshBtn = document.getElementById("refreshBtn");
     const syncTimeBtn = document.getElementById("syncTimeBtn");
@@ -991,10 +985,6 @@ span{
       return !!(state && state.nightLock);
     }
 
-    function isInterlockBlocked(relay) {
-      return !!(relay && state && state.interlock && relay.interlockBlocked);
-    }
-
     function updateNightLockUi() {
       // Night Lock is enforced on the ESP32 backend. The UI mirrors those
       // backend restrictions so users do not keep sending commands that will
@@ -1011,7 +1001,6 @@ span{
       timerMinutes.disabled = lock;
       timerTarget.disabled = lock;
       startTimerBtn.disabled = lock;
-      interlockToggle.disabled = lock;
       energyTrackingToggle.disabled = lock;
       savePirMappingBtn.disabled = lock;
       resetConsumptionBtn.disabled = lock;
@@ -1044,9 +1033,7 @@ span{
           </div>
           <div class="actions">
             <button class="primary" onclick="setManual(${relay.index}, 'ON')" ${
-              nightLock
-                ? "disabled title=\"Night Lock Active\""
-                : (isInterlockBlocked(relay) ? "disabled title=\"Interlock Active\"" : "")
+              nightLock ? "disabled title=\"Night Lock Active\"" : ""
             }>Manual ON</button>
             <button class="warn" onclick="setManual(${relay.index}, 'OFF')">Manual OFF</button>
             <button onclick="setManual(${relay.index}, 'AUTO')">AUTO</button>
@@ -1158,7 +1145,6 @@ span{
       dayNightStatus.textContent = `Day/Night: ${state.dayPhase || "--"} | Night Lock: ${state.nightLock ? "ON" : "OFF"}`;
       dayNightStatus.className = `pill ${state.nightLock ? "warn" : "good"}`;
       clientsStatus.textContent = `Clients: ${state.connectedClients ?? 0}`;
-      interlockToggle.checked = !!state.interlock;
       energyTrackingToggle.checked = !!state.energyTrackingEnabled;
       updateNightLockUi();
     }
@@ -1407,7 +1393,7 @@ span{
       if (msg.type === "command_ack") {
         showToast(msg.msg || (msg.ok ? "OK" : "Failed"));
         // Always refresh from the ESP32 after a command result so every client keeps
-        // the server as the single source of truth for Night Lock/interlock state.
+        // the server as the single source of truth for state changes.
         sendWs({ type: "get_state" });
         return;
       }
@@ -1512,13 +1498,6 @@ span{
         showToast("Night Lock Active");
         return;
       }
-      const relay = state && Array.isArray(state.relays)
-        ? state.relays.find((item) => Number(item.index) === Number(channel))
-        : null;
-      if (mode === "ON" && isInterlockBlocked(relay)) {
-        showToast("Interlock Active");
-        return;
-      }
       sendWs({ type: "set_manual", channel, mode });
     };
 
@@ -1546,15 +1525,6 @@ span{
     cancelTimerBtn.addEventListener("click", () => {
       const channel = Number(timerChannel.value);
       sendWs({ type: "cancel_timer", channel });
-    });
-
-    interlockToggle.addEventListener("change", () => {
-      if (isNightLockActive()) {
-        interlockToggle.checked = !!(state && state.interlock);
-        showToast("Night Lock Active");
-        return;
-      }
-      sendWs({ type: "set_interlock", enabled: interlockToggle.checked });
     });
 
     energyTrackingToggle.addEventListener("change", () => {

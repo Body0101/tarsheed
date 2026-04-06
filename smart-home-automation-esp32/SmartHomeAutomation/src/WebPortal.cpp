@@ -19,7 +19,7 @@ bool eventNeedsSnapshot(const String &jsonLine) {
   }
   const String event = doc["event"] | "";
   return event == "relay.changed" || event == "timer.started" || event == "timer.ended" || event == "timer.canceled" ||
-         event == "manual.changed" || event == "interlock.changed" || event == "mode.changed" ||
+         event == "manual.changed" || event == "mode.changed" ||
          event == "client.connected" || event == "client.disconnected" ||
          event == "pir.motion" || event == "pir.idle" ||
          event == "night_lock.activated" || event == "night_lock.released" || event == "relay.night_forced_off" ||
@@ -598,17 +598,6 @@ void WebPortal::handleClientMessage(uint8_t clientId, const String &payload) {
     const size_t channel = static_cast<size_t>(doc["channel"] | 99);
     const bool ok = engine_->cancelTimer(channel);
     sendCommandAck(clientId, ok, ok ? "Timer canceled." : "No active timer on this relay.");
-    if (ok) {
-      scheduleStateBroadcast();
-    }
-    return;
-  }
-
-  if (type == "set_interlock") {
-    const bool enabled = doc["enabled"] | false;
-    String errorText;
-    const bool ok = engine_->setInterlock(enabled, &errorText);
-    sendCommandAck(clientId, ok, ok ? "Interlock updated." : errorText);
     if (ok) {
       scheduleStateBroadcast();
     }

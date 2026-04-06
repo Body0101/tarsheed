@@ -30,7 +30,6 @@ class ControlEngine {
   // RATED DYNAMIC START
   bool setRatedPower(size_t relayIndex, float watts, String *error);
   // RATED DYNAMIC END
-  bool setInterlock(bool enabled, String *error = nullptr);
   bool setEnergyTrackingEnabled(bool enabled, String *error = nullptr);
   void updateConnectedClients(uint16_t clients);
 
@@ -59,12 +58,10 @@ class ControlEngine {
   bool canTurnOnLocked() const;
   void processPirInputsLocked(uint64_t nowEpoch);
   Decision evaluateRelayLocked(size_t relayIndex, uint64_t nowEpoch);
-  void applyInterlockLocked(Decision *d0, Decision *d1);
   void applyDecisionsLocked(const Decision decisions[RELAY_COUNT], uint64_t nowEpoch);
   uint64_t effectiveOnSecondsLocked(const RelayRuntime &relay, uint64_t nowEpoch) const;
   void closeActiveOnWindowLocked(RelayRuntime &relay, uint64_t nowEpoch);
   bool withLock(const std::function<void()> &fn) const;
-  static uint8_t sourcePriority(ControlSource source);
 
   SystemRuntime *runtime_ = nullptr;
   StorageLayer *storage_ = nullptr;

@@ -56,7 +56,6 @@ void pushSystemEvent(const String &eventName, const String &message, bool buffer
 
 void initRuntimeDefaults() {
   memset(&gRuntime, 0, sizeof(gRuntime));
-  gRuntime.interlockEnabled = false;
   gRuntime.energyTrackingEnabled = false;
   gRuntime.dayPhase = DayPhase::DAY;
   gRuntime.timeValid = false;

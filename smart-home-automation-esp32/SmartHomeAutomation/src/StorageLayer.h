@@ -44,7 +44,6 @@ class StorageLayer {
   bool clearLogFiles();
   bool factoryReset();
   // STORAGE END
-  void persistInterlock(bool enabled);
   void persistEnergyTrackingEnabled(bool enabled);
   void persistLastCleanupDay(uint32_t dayToken);
   uint32_t loadLastCleanupDay();
