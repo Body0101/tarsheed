@@ -19,6 +19,19 @@ constexpr const char *kRuntimeFiles[] = {
     FILE_LOGS,
     FILE_PENDING,
 };
+
+bool ensureFileExists(const char *path) {
+  if (!path || LittleFS.exists(path)) {
+    return path != nullptr;
+  }
+
+  File file = LittleFS.open(path, FILE_WRITE);
+  if (!file) {
+    return false;
+  }
+  file.close();
+  return true;
+}
 // STORAGE END
 }  // namespace
 
@@ -44,6 +57,13 @@ bool StorageLayer::begin() {
   }
   const bool ok = preferences_.begin(PREF_NAMESPACE, false);
   unlock();
+  if (ok) {
+    // Keep runtime files present after cold boot, factory reset, or a blank
+    // filesystem so later read/append paths do not fail unexpectedly.
+    for (const char *path : kRuntimeFiles) {
+      ensureFileExists(path);
+    }
+  }
   return ok;
 }
 
@@ -283,7 +303,9 @@ bool StorageLayer::readStringSetting(const char *key, const String &defaultValue
   if (!key || !outValue || !lock()) {
     return false;
   }
-  *outValue = preferences_.getString(key, defaultValue);
+  // Missing string keys should quietly fall back to defaults instead of
+  // producing noisy NOT_FOUND reads from Preferences/NVS.
+  *outValue = preferences_.isKey(key) ? preferences_.getString(key, defaultValue) : defaultValue;
   unlock();
   return true;
 }
@@ -438,6 +460,11 @@ String StorageLayer::readRecentLogsJson(uint16_t limit) const {
   if (limit > LOG_FETCH_MAX_ITEMS) {
     limit = LOG_FETCH_MAX_ITEMS;
   }
+  if (!LittleFS.exists(FILE_LOGS)) {
+    ensureFileExists(FILE_LOGS);
+    unlock();
+    return "[]";
+  }
   File file = LittleFS.open(FILE_LOGS, FILE_READ);
   if (!file) {
     unlock();
@@ -475,6 +502,11 @@ void StorageLayer::flushPending(const std::function<void(const String &line)> &s
   if (!lock()) {
     return;
   }
+  if (!LittleFS.exists(FILE_PENDING)) {
+    ensureFileExists(FILE_PENDING);
+    unlock();
+    return;
+  }
   File input = LittleFS.open(FILE_PENDING, FILE_READ);
   if (!input) {
     unlock();
@@ -510,10 +542,10 @@ void StorageLayer::cleanupDaily(uint64_t nowEpoch) {
 }
 
 void StorageLayer::appendLine(const char *path, const String &line) const {
-  File file = LittleFS.open(path, FILE_APPEND);
-  if (!file) {
-    file = LittleFS.open(path, FILE_WRITE);
+  if (!ensureFileExists(path)) {
+    return;
   }
+  File file = LittleFS.open(path, FILE_APPEND);
   if (!file) {
     return;
   }
@@ -522,6 +554,10 @@ void StorageLayer::appendLine(const char *path, const String &line) const {
 }
 
 void StorageLayer::trimFileBySize(const char *path, uint32_t maxBytes) const {
+  if (!LittleFS.exists(path)) {
+    ensureFileExists(path);
+    return;
+  }
   File file = LittleFS.open(path, FILE_READ);
   if (!file) {
     return;
@@ -582,6 +618,10 @@ bool StorageLayer::parseEpochFromLine(const String &line, uint64_t *epochOut) co
 }
 
 void StorageLayer::compactByAge(const char *path, uint64_t minEpochToKeep) const {
+  if (!LittleFS.exists(path)) {
+    ensureFileExists(path);
+    return;
+  }
   File input = LittleFS.open(path, FILE_READ);
   if (!input) {
     return;

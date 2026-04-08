@@ -26,6 +26,18 @@ bool eventNeedsSnapshot(const String &jsonLine) {
          event == "energy_update" || event == "energy_tracking.changed";
 }
 
+bool shouldPersistEventToFlash(const String &jsonLine) {
+  JsonDocument doc;
+  if (deserializeJson(doc, jsonLine)) {
+    return true;
+  }
+
+  const String event = doc["event"] | "";
+  // PIR activity is live state only. Keeping it out of flash avoids unbounded
+  // motion-history churn and keeps log I/O from competing with network work.
+  return event != "pir.motion" && event != "pir.idle";
+}
+
 bool shouldRateLimitRelayCommand(size_t relayIndex) {
   constexpr uint32_t RELAY_COMMAND_RATE_LIMIT_MS = 120UL;
   static uint32_t lastRelayCommandMs[RELAY_COUNT] = {};
@@ -709,14 +721,17 @@ void WebPortal::processQueue() {
     //  - ts: epoch seconds
     //  - mac: client MAC or SYSTEM
     const String normalized = normalizeLogPayload(raw, fallbackMac);
+    const bool persistToFlash = shouldPersistEventToFlash(normalized);
 
-    storage_->appendEventJson(normalized);
+    if (persistToFlash) {
+      storage_->appendEventJson(normalized);
+    }
     if (connectedClients_ > 0) {
       broadcast(normalized);
       if (eventNeedsSnapshot(normalized)) {
         snapshotNeeded = true;
       }
-    } else if (queued.bufferIfOffline) {
+    } else if (queued.bufferIfOffline && persistToFlash) {
       storage_->appendPending(normalized);
     }
     ++processed;
