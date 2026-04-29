@@ -210,12 +210,14 @@ bool eventNeedsSnapshot(const String &jsonLine) {
     return false;
   }
   const String event = doc["event"] | "";
+  // Only schedule full-state broadcasts for authoritative state transitions.
+  // High-frequency live channels like PIR motion and energy updates are pushed
+  // and rendered incrementally on the frontend to avoid whole-dashboard churn.
   return event == "relay.changed" || event == "timer.started" || event == "timer.ended" || event == "timer.canceled" ||
          event == "manual.changed" || event == "mode.changed" ||
          event == "client.connected" || event == "client.disconnected" ||
-         event == "pir.motion" || event == "pir.idle" ||
          event == "night_lock.activated" || event == "night_lock.released" || event == "relay.night_forced_off" ||
-         event == "energy_update" || event == "energy_tracking.changed";
+         event == "energy_tracking.changed";
 }
 
 bool shouldPersistEventToFlash(const String &jsonLine) {

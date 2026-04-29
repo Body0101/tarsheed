@@ -6,7 +6,7 @@
 #define ALLOW_RATED_RESET false
 #endif
 
-constexpr char AP_SSID[] = "homecore";
+constexpr char AP_SSID[] = "tarshid";
 constexpr char AP_PASSWORD[] = "12345678";
 
 // Keep blank if no infrastructure Wi-Fi is available.
