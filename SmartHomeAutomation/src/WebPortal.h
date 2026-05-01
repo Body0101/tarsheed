@@ -12,8 +12,9 @@
 #include "StorageLayer.h"
 #include "TimeKeeper.h"
 
-class WebPortal {
- public:
+class WebPortal
+{
+public:
   void begin(ControlEngine *engine, StorageLayer *storage, TimeKeeper *timeKeeper);
   void loop();
   void recoverAfterAccessPointRestart();
@@ -21,19 +22,22 @@ class WebPortal {
   bool enqueueEvent(const String &eventJson, bool bufferIfOffline);
   uint16_t connectedClientCount() const;
 
- private:
-  struct QueuedEvent {
+private:
+  struct QueuedEvent
+  {
     bool bufferIfOffline;
     char json[400];
     char mac[20];
   };
 
-  struct QueuedCommand {
+  struct QueuedCommand
+  {
     uint8_t clientId;
     char json[400];
   };
 
-  struct CommandContextGuard {
+  struct CommandContextGuard
+  {
     explicit CommandContextGuard(WebPortal *portal) : portal_(portal) {}
     ~CommandContextGuard();
     WebPortal *portal_ = nullptr;
@@ -62,6 +66,7 @@ class WebPortal {
   bool shouldRedirectToCaptivePortal();
   void sendCaptivePortalResponse(int httpCode);
   // CAPTIVE PORTAL END
+
   String normalizeLogPayload(const String &rawJson, const String &fallbackMac) const;
   String formatEpochClock(uint64_t epoch) const;
   void setCommandContext(uint8_t clientId);
@@ -74,6 +79,24 @@ class WebPortal {
   uint16_t recalcConnectedClients();
   void syncConnectedClients(bool broadcastSnapshot);
   void updateClientCountInEngine();
+  // ACCESS CONTROL START
+  struct AuthContext
+  {
+    bool isAuthenticated;
+    UserAccount user;
+    uint32_t authTimestamp;
+  };
+
+  AccessControlRuntime accessControl_;
+  bool validateMacAccess(const String &macAddress);
+  bool authenticateUser(const String &macAddress, const String &password);
+  bool checkPermission(const UserAccount &user, const String &requiredPermission);
+  void updateLastAccess(const char *macAddress);
+  String getConnectedClientMac(uint8_t clientId);
+  String resolveClientMacFromIP(IPAddress ip);
+  String macFromHttpClient();
+  bool isAuthorizedRoute(const String &uri);
+  // ACCESS CONTROL END
 
   static void onWsEventStatic(uint8_t clientId, WStype_t type, uint8_t *payload, size_t length);
   static WebPortal *instance_;

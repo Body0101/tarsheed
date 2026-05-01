@@ -414,6 +414,25 @@ void setup() {
 
   gStorage.loadRuntime(&gRuntime);
 
+  // FIX R5: probe the access-control roster at boot and report it on Serial.
+  // gStorage.loadRuntime() above only restores relay/PIR/timer state -- it does
+  // NOT load user accounts (verified in StorageLayer::loadRuntime). Without
+  // this probe, an NVS issue with the "users_json" key is invisible until a
+  // user tries to log in via the web UI. WebPortal::begin() loads the roster
+  // into its own cache later; this call is purely diagnostic and re-uses the
+  // same StorageLayer API (no new function added).
+  {
+    AccessControlRuntime accessProbe{};
+    if (gStorage.loadUserAccounts(&accessProbe)) {
+      Serial.printf("[Boot] Access control: %u/%u user account(s) loaded from NVS\n",
+                    static_cast<unsigned>(accessProbe.userCount),
+                    static_cast<unsigned>(MAX_USER_ACCOUNTS));
+    } else {
+      Serial.println("[Boot] Access control: loadUserAccounts() FAILED — "
+                     "roster unavailable until next successful load.");
+    }
+  }
+
   gTimeKeeper.begin(gStorage.prefs());
 
   setupWiFi();

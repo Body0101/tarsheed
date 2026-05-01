@@ -44,6 +44,26 @@ class StorageLayer {
   bool clearLogFiles();
   bool factoryReset();
   // STORAGE END
+// ACCESS CONTROL START
+bool loadUserAccounts(AccessControlRuntime *access);
+bool saveUserAccounts(const AccessControlRuntime *access);
+bool addUserAccount(const UserAccount &user);
+bool removeUserAccount(const char *macAddress);
+bool updateUserAccount(const UserAccount &user);
+UserAccount* findUserByMac(const char *macAddress);
+bool validateMacFormat(const char *macAddress);
+// STORAGE MANAGEMENT START
+// Returns true when the roster has reached MAX_USER_ACCOUNTS.
+bool isUserStorageFull() const;
+// Removes non-admin users whose lastAccess is 0 or older than
+// inactiveThresholdDays days before nowEpoch.
+// Returns the number of accounts removed.
+uint8_t removeInactiveUsers(uint64_t nowEpoch, uint32_t inactiveThresholdDays, bool keepAdmins);
+// Activity-log on/off flag (persisted to NVS).
+bool logsEnabled() const;
+void setLogsEnabled(bool enabled);
+// STORAGE MANAGEMENT END
+// ACCESS CONTROL END
   void persistEnergyTrackingEnabled(bool enabled);
   void persistLastCleanupDay(uint32_t dayToken);
   uint32_t loadLastCleanupDay();
@@ -65,4 +85,5 @@ class StorageLayer {
 
   Preferences preferences_;
   mutable SemaphoreHandle_t ioMutex_ = nullptr;
+  bool logsEnabled_ = true; // runtime cache; NVS is authoritative
 };

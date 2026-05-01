@@ -592,6 +592,10 @@
       background: linear-gradient(135deg, var(--accent), var(--accent-2));
       color: #fff;
       border-color: transparent;
+      /* FIX RC-D: without touch-action:manipulation, mobile browsers add a
+         300ms tap-delay AND treat the first tap on an element with :hover
+         styles as a hover-only event, so users have to tap twice. */
+      touch-action: manipulation;
     }
 
     button.primary:hover:not(:disabled) {
@@ -1750,7 +1754,10 @@
       font-size: 0.92rem;
       font-weight: 600;
       box-shadow: 0 22px 44px rgba(0, 0, 0, 0.3);
-      z-index: 9;
+      /* FIX RC-C: original z-index:9 sat below the .admin-modal backdrop
+         (z-index:200), so toast feedback was invisible while the modal was
+         open. Bump above the modal layer. */
+      z-index: 1000;
       max-width: min(92vw, 580px);
       transition: opacity 220ms ease, transform 220ms ease;
     }
@@ -1889,6 +1896,114 @@
       transform: rotate(0deg);
     }
 
+    /* ACCESS CONTROL START */
+    .admin-fab {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #fff;
+      border: none;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      box-shadow: 0 4px 12px var(--accent-ring);
+      z-index: 100;
+      transition: transform 180ms ease, box-shadow 180ms ease;
+      /* FIX RC-D: same touch-action fix as button.primary so the FAB opens
+         the modal on the first tap on iOS / Android. */
+      touch-action: manipulation;
+    }
+
+    .admin-fab:hover {
+      transform: scale(1.05);
+      box-shadow: 0 6px 16px var(--accent-ring);
+    }
+
+    .admin-fab .icon {
+      width: 24px;
+      height: 24px;
+      stroke: #fff;
+    }
+
+    .admin-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      display: grid;
+      place-items: center;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+    }
+
+    .admin-modal[hidden] {
+      display: none;
+    }
+
+    .admin-modal-content {
+      background: var(--surface);
+      border-radius: var(--radius-xl);
+      padding: 24px;
+      width: min(500px, 90vw);
+      max-height: 85vh;
+      overflow: auto;
+    }
+
+    .admin-modal-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .admin-modal-body {
+      display: grid;
+      gap: 16px;
+    }
+
+    .user-list-item {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      background: var(--surface-2);
+      border-radius: var(--radius);
+    }
+
+    .user-list-item .user-info {
+      display: grid;
+      gap: 4px;
+    }
+
+    .user-list-item .user-name {
+      font-weight: 700;
+    }
+
+    .user-list-item .user-mac {
+      font-size: 0.8rem;
+      color: var(--muted);
+      font-family: monospace;
+    }
+
+    .user-list-item .user-perms {
+      display: flex;
+      gap: 8px;
+    }
+
+    .user-list-item .perm-badge {
+      font-size: 0.7rem;
+      padding: 3px 8px;
+      border-radius: var(--radius-pill);
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    /* ACCESS CONTROL END */
     /* ============================================================
        RESPONSIVE
        ============================================================ */
@@ -2119,6 +2234,114 @@
             <use href="#i-moon" />
           </svg><span>Dark Mode</span>
         </button>
+        <!-- ACCESS CONTROL START -->
+        <button id="adminFab" class="admin-fab" type="button" aria-label="Manage Users" title="Manage Users">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="8.5" cy="7" r="4"></circle>
+            <line x1="20" y1="8" x2="20" y2="14"></line>
+            <line x1="23" y1="11" x2="17" y2="11"></line>
+          </svg>
+        </button>
+
+        <div id="adminModal" class="admin-modal" hidden>
+          <div class="admin-modal-content">
+            <div class="admin-modal-head">
+              <h3>Manage Users</h3>
+              <button id="adminModalClose" type="button" class="icon-btn" style="min-height:40px;padding:8px;">
+                <svg class="icon">
+                  <use href="#i-close" />
+                </svg>
+              </button>
+            </div>
+
+            <div class="admin-modal-body">
+              <!-- FIX UI-RBAC: wrap entire Add-Members form so it can be
+                   shown/hidden as a unit based on isAdmin permission. -->
+              <div id="addMembersSection">
+              <div class="field">
+                <label>Admin Name</label>
+                <input type="text" id="adminNameInput" placeholder="Your name">
+              </div>
+
+              <div class="field">
+                <label>Admin Password</label>
+                <input type="password" id="adminPasswordInput" placeholder="Your password">
+              </div>
+
+              <hr style="border:0;border-top:1px solid var(--border);margin:16px 0;">
+
+              <div class="field">
+                <label>New User Name</label>
+                <input type="text" id="newUserName" placeholder="User display name">
+              </div>
+
+              <div class="field">
+                <label>New User MAC Address</label>
+                <input type="text" id="newUserMac" placeholder="AA:BB:CC:DD:EE:FF">
+                <small class="help-text">Format: XX:XX:XX:XX:XX:XX (hex)</small>
+              </div>
+
+              <!-- FIX: hidden by default; shown only when Is Administrator is checked. -->
+              <div class="field" id="newUserPasswordField" hidden>
+                <label>New User Password</label>
+                <input type="password" id="newUserPassword" placeholder="Password">
+              </div>
+
+              <!-- FIX RC-10: expose the isAdmin flag in the UI. Without this
+                   checkbox the addUser POST never carries isAdmin:true, so the
+                   only admin in the system is the seeded default one. -->
+              <label class="toggle">
+                <input type="checkbox" id="newUserIsAdmin">
+                <span>Is administrator</span>
+              </label>
+
+              <label class="toggle">
+                <input type="checkbox" id="newUserCanManage">
+                <span>Can manage other users</span>
+              </label>
+
+              <div class="actions">
+                <!-- FIX: explicit type="button" prevents any future form
+                     wrapper from turning this into an implicit submit. -->
+                <button id="addUserBtn" class="primary" type="button">Add User</button>
+              </div>
+              </div><!-- /addMembersSection -->
+
+              <!-- STORAGE MANAGEMENT: shown only when addUser returns storage_full -->
+              <div id="storageFullPanel" hidden
+                   style="background:var(--surface,#fff);border:1px solid var(--danger,#e00);
+                          border-radius:8px;padding:14px;margin:12px 0;">
+                <p style="margin:0 0 10px;font-weight:600;color:var(--danger,#e00);">
+                  User roster is full. Choose a recovery option:
+                </p>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                  <button id="optionDisableLogs" class="danger" type="button"
+                          style="flex:1;min-height:40px;">
+                    Disable Activity Log
+                  </button>
+                  <button id="optionRemoveInactive" class="primary" type="button"
+                          style="flex:1;min-height:40px;">
+                    Remove Inactive Users
+                  </button>
+                </div>
+                <p id="storageFullMsg" style="margin:8px 0 0;font-size:.85em;
+                   color:var(--text-dim,#888);"></p>
+              </div><!-- /storageFullPanel -->
+
+              <!-- FIX UI-RBAC: wrap Existing-Users region so it can be
+                   shown/hidden based on canManageUsers permission. -->
+              <div id="existingUsersSection">
+              <hr style="border:0;border-top:1px solid var(--border);margin:16px 0;">
+
+              <h4>Existing Users</h4>
+              <div id="userList" class="power-list" style="max-height:300px;overflow:auto;"></div>
+              </div><!-- /existingUsersSection -->
+            </div>
+          </div>
+        </div>
+        <!-- ACCESS CONTROL END -->
+
       </div>
     </header>
 
@@ -2271,9 +2494,13 @@
           </div>
 
           <button class="advanced-trigger" type="button" data-advanced-type="timer">
-            <span class="trigger-label"><svg class="icon"><use href="#i-info" /></svg>
+            <span class="trigger-label"><svg class="icon">
+                <use href="#i-info" />
+              </svg>
               <span data-i18n="timer_advanced_label">Advanced timer info</span></span>
-            <svg class="icon"><use href="#i-chevron" /></svg>
+            <svg class="icon">
+              <use href="#i-chevron" />
+            </svg>
           </button>
         </article>
 
@@ -2355,9 +2582,13 @@
             </div>
 
             <button class="advanced-trigger" type="button" data-advanced-type="day-night">
-              <span class="trigger-label"><svg class="icon"><use href="#i-sun" /></svg>
+              <span class="trigger-label"><svg class="icon">
+                  <use href="#i-sun" />
+                </svg>
                 <span data-i18n="day_night_advanced_label">Day / Night details</span></span>
-              <svg class="icon"><use href="#i-chevron" /></svg>
+              <svg class="icon">
+                <use href="#i-chevron" />
+              </svg>
             </button>
           </div>
         </article>
@@ -2425,7 +2656,7 @@
 
   <!-- ============== 11. FOOTER ============== -->
   <div class="footer-card footer-admins">
-    <p data-i18n="supervised" >
+    <p data-i18n="supervised">
       This project was developed under the supervision of
       <span class="doctor-name">Dr. Nancy El-Hefnawy</span>
       and
@@ -2479,7 +2710,9 @@
       <header class="advanced-panel-head">
         <h3 id="advancedOverlayTitle">Advanced details</h3>
         <button id="advancedOverlayClose" class="advanced-close" type="button" aria-label="Close advanced details">
-          <svg class="icon"><use href="#i-close" /></svg>
+          <svg class="icon">
+            <use href="#i-close" />
+          </svg>
         </button>
       </header>
       <div id="advancedOverlayBody" class="advanced-body"></div>
@@ -2537,6 +2770,40 @@
     const advancedOverlayBody = document.getElementById("advancedOverlayBody");
     const advancedOverlayClose = document.getElementById("advancedOverlayClose");
     const toast = document.getElementById("toast");
+    // ACCESS CONTROL START
+    const adminFab = document.getElementById("adminFab");
+    const adminModal = document.getElementById("adminModal");
+    const adminModalClose = document.getElementById("adminModalClose");
+    const addUserBtn = document.getElementById("addUserBtn");
+    const userList = document.getElementById("userList");
+    // FIX UI-RBAC: handles to the two role-gated wrapper regions.
+    const addMembersSection = document.getElementById("addMembersSection");
+    const existingUsersSection = document.getElementById("existingUsersSection");
+    // STORAGE MANAGEMENT: storage-full recovery panel elements.
+    const storageFullPanel = document.getElementById("storageFullPanel");
+    const storageFullMsg   = document.getElementById("storageFullMsg");
+    let currentUserMac = null;
+    // FIX UI-RBAC: cache current user's role flags from /api/auth/status.
+    let currentUserIsAdmin = false;
+    let currentUserCanManage = false;
+
+    // FIX UI-RBAC: single source of truth for the visibility matrix.
+    //   Case 1 (both false)   -> hide FAB + both sections
+    //   Case 2 (admin only)   -> show FAB + Add-Members only
+    //   Case 3 (manage only)  -> show FAB + Existing-Users only
+    //   Case 4 (both true)    -> show FAB + both sections
+    // Uses the .hidden attribute (boolean) so the elements are invisible AND
+    // unfocusable (browsers skip [hidden] elements in the tab order).
+    function applyRoleVisibility(isAdmin, canManage) {
+      const anyPerm = !!(isAdmin || canManage);
+      if (adminFab) adminFab.hidden = !anyPerm;
+      if (addMembersSection) addMembersSection.hidden = !isAdmin;
+      if (existingUsersSection) existingUsersSection.hidden = !canManage;
+      // Belt-and-braces: if no permissions at all, also force the modal closed
+      // so a stale [hidden=false] from a previous session cannot leak content.
+      if (!anyPerm && adminModal) adminModal.hidden = true;
+    }
+    // ACCESS CONTROL END
 
     let socket = null;
     let socketReady = false;
@@ -2707,7 +2974,7 @@
         toast_time_synchronized: "Time synchronized.",
         toast_energy_tracking_enabled: "Energy tracking enabled.",
         toast_energy_tracking_disabled: "Energy tracking disabled.",
-        supervised : "This project was developed under the supervision of Dr. Nancy El-Hefnawy and Dr. Aida Nasr",
+        supervised: "This project was developed under the supervision of Dr. Nancy El-Hefnawy and Dr. Aida Nasr",
       },
       ar: {
         language_toggle: "EN | AR",
@@ -3012,6 +3279,11 @@
        UI Helpers
        ========================================== */
     function showToast(message) {
+      console.log('[Toast]', message);
+      if (!toast) {
+        alert(message);   // fallback for debugging
+        return;
+      }
       toast.textContent = translateUiMessage(message);
       toast.classList.add("show");
       clearTimeout(showToast._timer);
@@ -3736,12 +4008,369 @@
       if (document.visibilityState === "visible" && !socketReady) connectSocket();
     });
 
+    // ACCESS CONTROL START
+    function validateMacFormat(mac) {
+      const regex = /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/;
+      return regex.test(mac);
+    }
+
+    async function checkAuthStatus() {
+      try {
+        const response = await fetch("/api/auth/status");
+        const data = await response.json();
+        currentUserMac = data.mac;
+
+        if (!data.authenticated) {
+          window.location.href = "/unauthorized.html";
+          return false;
+        }
+        // FIX UI-RBAC: cache + apply role flags coming from the status
+        // endpoint. Defaults to false so a missing field on legacy firmware
+        // collapses to Case 1 (no admin UI), which is the safe default.
+        currentUserIsAdmin = !!data.isAdmin;
+        currentUserCanManage = !!data.canManageUsers;
+        applyRoleVisibility(currentUserIsAdmin, currentUserCanManage);
+        return true;
+      } catch {
+        // FIX RC-7: do not fail open on network errors. The previous code
+        // returned true on any fetch failure, which let unauthorized clients
+        // through whenever the auth probe transiently failed.
+        window.location.href = "/unauthorized.html";
+        return false;
+      }
+    }
+
+    // FIX: keep an in-memory copy of the latest user roster so addUser() can
+    // perform a client-side duplicate check without an extra round trip.
+    // Mirrors backend MAX_NAME_LENGTH (32) and MAX_PASSWORD_LENGTH (64) from
+    // SystemTypes.h so the client refuses input the firmware would truncate.
+    let usersCache = [];
+    const NAME_MAX_LEN = 31;     // MAX_NAME_LENGTH(32) - 1 for null terminator
+    const PASSWORD_MAX_LEN = 63; // MAX_PASSWORD_LENGTH(64) - 1 for null terminator
+
+    async function loadUserList() {
+      try {
+        const response = await fetch("/api/auth/users");
+        const data = await response.json();
+
+        // FIX RC-2: backend now returns ok:true; stay defensive and accept any
+        // payload that contains a users array so a future shape change does not
+        // re-break this flow.
+        if (!Array.isArray(data.users)) {
+          usersCache = [];
+          userList.innerHTML = '<p class="help-text">Failed to load users</p>';
+          return;
+        }
+
+        // FIX: normalise MACs to upper case in the cache so the duplicate
+        // check in addUser() is case-insensitive regardless of what the
+        // backend stored historically.
+        usersCache = data.users.map(u => ({
+          ...u,
+          mac: (u.mac || "").toUpperCase()
+        }));
+
+        userList.innerHTML = usersCache.map(user => `
+      <div class="user-list-item">
+        <div class="user-info">
+          <div class="user-name">${escapeHtml(user.name)}</div>
+          <div class="user-mac">${escapeHtml(user.mac)}</div>
+        </div>
+        <div class="user-perms">
+          ${user.isAdmin ? '<span class="perm-badge">Admin</span>' : ''}
+          ${user.canManageUsers ? '<span class="perm-badge">Can Manage</span>' : ''}
+        </div>
+        <button class="danger" type="button" onclick="removeUser('${user.mac}')"
+                ${user.mac === (currentUserMac || "").toUpperCase() ? 'disabled' : ''}
+                style="min-height:40px;padding:8px 12px;touch-action:manipulation;">
+          Remove
+        </button>
+      </div>
+    `).join("");
+      } catch {
+        usersCache = [];
+        userList.innerHTML = '<p class="help-text">Failed to load users</p>';
+      }
+    }
+
+    async function addUser() {
+      console.log('[AddUser] Button clicked – starting addUser flow');
+
+      // FIX: in-flight guard. Disable the button immediately so a fast double
+      // click (or a slow ESP32 response) cannot fire two POSTs against
+      // /api/auth/addUser. Restored in finally{}.
+      if (!addUserBtn || addUserBtn.disabled) {
+        console.warn('[AddUser] Ignored: button already disabled / in flight');
+        return;
+      }
+      addUserBtn.disabled = true;
+      const originalLabel = addUserBtn.textContent;
+      addUserBtn.textContent = "Adding...";
+
+      try {
+        const adminName = document.getElementById("adminNameInput").value.trim();
+        const adminPassword = document.getElementById("adminPasswordInput").value;
+        const newName = document.getElementById("newUserName").value.trim();
+        const newMacRaw = document.getElementById("newUserMac").value.trim();
+        const newPassword = document.getElementById("newUserPassword").value;
+        const canManage = document.getElementById("newUserCanManage").checked;
+        // FIX RC-10: forward the new admin flag the modal now exposes.
+        const isAdmin = document.getElementById("newUserIsAdmin").checked;
+
+        // ---- Client-side validation (loud, never silent) ----
+        if (!adminName) {
+          showToast("Admin name is required");
+          document.getElementById("adminNameInput").focus();
+          return;
+        }
+        if (!adminPassword) {
+          showToast("Admin password is required");
+          document.getElementById("adminPasswordInput").focus();
+          return;
+        }
+        if (!newName) {
+          showToast("New user name is required");
+          document.getElementById("newUserName").focus();
+          return;
+        }
+        if (newName.length > NAME_MAX_LEN) {
+          showToast(`Name too long (max ${NAME_MAX_LEN} characters)`);
+          document.getElementById("newUserName").focus();
+          return;
+        }
+        if (!newPassword) {
+          showToast("New user password is required");
+          document.getElementById("newUserPassword").focus();
+          return;
+        }
+        if (newPassword.length > PASSWORD_MAX_LEN) {
+          showToast(`Password too long (max ${PASSWORD_MAX_LEN} characters)`);
+          document.getElementById("newUserPassword").focus();
+          return;
+        }
+        if (!validateMacFormat(newMacRaw)) {
+          showToast("Invalid MAC address. Format: XX:XX:XX:XX:XX:XX (hex)");
+          document.getElementById("newUserMac").focus();
+          return;
+        }
+
+        const newMac = newMacRaw.toUpperCase();
+
+        // FIX: client-side duplicate check against the cached roster. The
+        // backend (StorageLayer::addUserAccount, line 955) also rejects
+        // duplicates, but doing it here gives instant feedback and saves a
+        // round trip on the ESP32.
+        if (usersCache.some(u => u.mac === newMac)) {
+          showToast("Already exists: a user with this MAC is registered");
+          return;
+        }
+
+        console.log('[AddUser] Sending fetch request to /api/auth/addUser');
+        const response = await fetch("/api/auth/addUser", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            adminPassword,
+            newMac,
+            newName,
+            newPassword,
+            // Admins implicitly have manage rights, so OR them together to
+            // avoid creating an "admin who cannot manage" inconsistency.
+            isAdmin,
+            canManageUsers: canManage || isAdmin
+          })
+        });
+        console.log('[AddUser] Response status:', response.status);
+
+        let data = {};
+        try { data = await response.json(); } catch { data = {}; }
+        console.log('[AddUser] Response data:', data);
+
+        if (response.ok && data.ok) {
+          showToast(data.msg || "User added successfully");
+          document.getElementById("newUserName").value = "";
+          document.getElementById("newUserMac").value = "";
+          document.getElementById("newUserPassword").value = "";
+          document.getElementById("newUserCanManage").checked = false;
+          document.getElementById("newUserIsAdmin").checked = false;
+          // Re-hide the password field after form reset.
+          const _pwf = document.getElementById("newUserPasswordField");
+          if (_pwf) _pwf.hidden = true;
+          // Hide recovery panel on success.
+          if (storageFullPanel) storageFullPanel.hidden = true;
+          await loadUserList();
+        } else if (data.error === "storage_full") {
+          // STORAGE MANAGEMENT: roster is full. Reveal the recovery panel
+          // so the admin can choose between disabling logs or removing
+          // inactive users before retrying the add-user operation.
+          if (storageFullPanel) {
+            storageFullPanel.hidden = false;
+            if (storageFullMsg) storageFullMsg.textContent = data.msg || "";
+          }
+          showToast("Storage full. Choose a recovery option below.");
+        } else if (data.error === "manual_cleanup_required") {
+          // STORAGE MANAGEMENT: all non-admin users are still active; no
+          // automatic removal was possible. Prompt manual cleanup.
+          if (storageFullMsg)
+            storageFullMsg.textContent =
+              data.msg || "Please remove inactive users manually.";
+          showToast(data.msg || "Please remove inactive users manually.");
+        } else {
+          // Surface the EXACT backend error message instead of a generic one.
+          const reason = data.msg || `Server error (HTTP ${response.status})`;
+          showToast(`Failed to add user: ${reason}`);
+        }
+      } catch (err) {
+        console.error('[AddUser] Fetch error:', err);
+        showToast(`Request failed: ${err && err.message ? err.message : "network error"}`);
+      } finally {
+        // Always restore the button so the user can retry.
+        if (addUserBtn) {
+          addUserBtn.disabled = false;
+          addUserBtn.textContent = originalLabel;
+        }
+      }
+    }
+
+    window.removeUser = async (mac) => {
+      if (!confirm(`Remove user ${mac}? This cannot be undone.`)) return;
+
+      const adminPassword = prompt("Enter your admin password to confirm:");
+      if (!adminPassword) return;
+
+      try {
+        const response = await fetch("/api/auth/removeUser", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mac, adminPassword })
+        });
+
+        const data = await response.json();
+        showToast(data.msg || (data.ok ? "User removed" : "Failed to remove"));
+
+        if (data.ok) {
+          loadUserList();
+        }
+      } catch {
+        showToast("Request failed");
+      }
+    };
+
+    // FIX: bind access-control listeners exactly once. The script runs at the
+    // end of <body> AFTER the modal markup is parsed (modal at line ~2240,
+    // script tag at line ~2674), so getElementById lookups above already
+    // returned real elements. The dataset flag below is belt-and-braces in
+    // case the script ever gets re-evaluated (e.g. hot-reload during dev).
+    if (adminFab && !adminFab.dataset.bound) {
+      adminFab.addEventListener("click", () => {
+        // FIX UI-RBAC: defence in depth. Even if the FAB ever became
+        // visible (e.g. CSS override), refuse to open the modal when the
+        // user has neither permission. Backend is still the real gate.
+        if (!currentUserIsAdmin && !currentUserCanManage) return;
+        adminModal.hidden = false;
+        // FIX UI-RBAC: only fetch the user list if the user is allowed to
+        // see it. Avoids a guaranteed 403 for Case 2 (admin only).
+        if (currentUserCanManage) loadUserList();
+      });
+      adminFab.dataset.bound = "1";
+    }
+
+    if (adminModalClose && !adminModalClose.dataset.bound) {
+      adminModalClose.addEventListener("click", () => {
+        adminModal.hidden = true;
+      });
+      adminModalClose.dataset.bound = "1";
+    }
+
+    // Toggle New-User-Password visibility with the Is-Administrator checkbox.
+    const newUserIsAdmin = document.getElementById("newUserIsAdmin");
+    const newUserPasswordField = document.getElementById("newUserPasswordField");
+    if (newUserIsAdmin && newUserPasswordField && !newUserIsAdmin.dataset.pwBound) {
+      newUserIsAdmin.addEventListener("change", function () {
+        newUserPasswordField.hidden = !this.checked;
+        if (!this.checked) {
+          document.getElementById("newUserPassword").value = "";
+        }
+      });
+      newUserIsAdmin.dataset.pwBound = "1";
+    }
+
+    // STORAGE MANAGEMENT: recovery option handlers.
+    const optDisable  = document.getElementById("optionDisableLogs");
+    const optRemove   = document.getElementById("optionRemoveInactive");
+
+    if (optDisable && !optDisable.dataset.bound) {
+      optDisable.addEventListener("click", async () => {
+        const adminPassword = document.getElementById("adminPasswordInput").value;
+        if (!adminPassword) { showToast("Enter your admin password first."); return; }
+        optDisable.disabled = true;
+        try {
+          const res = await fetch("/api/auth/disableLogs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ adminPassword })
+          });
+          const data = await res.json();
+          showToast(data.msg || (data.ok ? "Logging disabled" : "Failed"));
+          if (data.ok && storageFullPanel) {
+            storageFullPanel.hidden = true;
+            if (storageFullMsg) storageFullMsg.textContent = "Logs disabled. You may now add a new user.";
+          }
+        } catch { showToast("Request failed."); }
+        finally { optDisable.disabled = false; }
+      });
+      optDisable.dataset.bound = "1";
+    }
+
+    if (optRemove && !optRemove.dataset.bound) {
+      optRemove.addEventListener("click", async () => {
+        const adminPassword = document.getElementById("adminPasswordInput").value;
+        if (!adminPassword) { showToast("Enter your admin password first."); return; }
+        optRemove.disabled = true;
+        try {
+          const res = await fetch("/api/auth/removeInactiveUsers", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ adminPassword })
+          });
+          const data = await res.json();
+          if (data.ok) {
+            showToast(data.msg || "Inactive users removed.");
+            if (storageFullPanel) storageFullPanel.hidden = true;
+            if (currentUserCanManage) loadUserList();
+          } else if (data.error === "manual_cleanup_required") {
+            if (storageFullMsg)
+              storageFullMsg.textContent = data.msg || "Please remove inactive users manually.";
+            showToast(data.msg || "No inactive users found. Remove users manually.");
+          } else {
+            showToast(data.msg || "Failed to remove inactive users.");
+          }
+        } catch { showToast("Request failed."); }
+        finally { optRemove.disabled = false; }
+      });
+      optRemove.dataset.bound = "1";
+    }
+
+    if (addUserBtn && !addUserBtn.dataset.bound) {
+      addUserBtn.addEventListener("click", (event) => {
+        // No <form> exists in this page (verified), so preventDefault is
+        // strictly defensive against a future wrapper that might intercept.
+        event.preventDefault();
+        addUser();
+      });
+      addUserBtn.dataset.bound = "1";
+    }
+    // ACCESS CONTROL END
+
     /* ==========================================
        Bootstrap
        ========================================== */
     window.onload = async () => {
       ThemeManager.init();
       applyLanguage(currentLanguage);
+      // ACCESS CONTROL START
+      await checkAuthStatus();
+      // ACCESS CONTROL END
       setConnectionStatus(false);
       setSyncStatus("Sync: Idle");
       await syncDeviceTime();

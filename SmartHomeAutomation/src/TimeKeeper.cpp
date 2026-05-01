@@ -255,13 +255,12 @@ void TimeKeeper::persistUserSyncPoint() {
 }
 
 void TimeKeeper::setEpoch(uint64_t epochSeconds) {
-  timeValid_ = true;
-
-  // Keep ESP32 system clock aligned so standard time helpers stay consistent.
   struct timeval tv;
-  tv.tv_sec = static_cast<time_t>(epochSeconds);
-  tv.tv_usec = 0;
-  settimeofday(&tv, nullptr);
+    tv.tv_sec = static_cast<time_t>(epochSeconds);
+    tv.tv_usec = 0;
+    if (settimeofday(&tv, nullptr) == 0) {
+        timeValid_ = true;
+    }
 }
 
 bool TimeKeeper::applyTimezoneRule(const String &tzRule, bool persist) {

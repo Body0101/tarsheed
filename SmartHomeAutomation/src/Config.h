@@ -5,7 +5,16 @@
 #ifndef ALLOW_RATED_RESET
 #define ALLOW_RATED_RESET false
 #endif
+// ACCESS CONTROL START
+#ifndef ENABLE_ACCESS_CONTROL
+#define ENABLE_ACCESS_CONTROL true
+#endif
 
+constexpr char PREF_ACCESS_NAMESPACE[] = "access_users";
+constexpr char FILE_UNAUTHORIZED[] = "/unauthorized.html";
+constexpr uint8_t MAX_AUTH_ATTEMPTS = 5;
+constexpr uint32_t AUTH_LOCKOUT_SECONDS = 300;
+// ACCESS CONTROL END
 constexpr char AP_SSID[] = "tarshid";
 constexpr char AP_PASSWORD[] = "12345678";
 
@@ -54,3 +63,10 @@ constexpr uint8_t WATCHDOG_TIMEOUT_SECONDS = 12;
 constexpr char PREF_NAMESPACE[] = "smart_home";
 constexpr char FILE_LOGS[] = "/logs.jsonl";
 constexpr char FILE_PENDING[] = "/pending.jsonl";
+
+// STORAGE MANAGEMENT START
+// Days without login before a non-admin account is considered inactive.
+constexpr uint32_t LOG_INACTIVITY_DAYS = 30;
+// NVS key used to persist the activity-log enabled flag across reboots.
+constexpr char LOG_ENABLED_KEY[] = "log_en";
+// STORAGE MANAGEMENT END

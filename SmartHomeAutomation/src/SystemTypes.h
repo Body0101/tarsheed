@@ -4,6 +4,16 @@
 
 constexpr size_t RELAY_COUNT = 2;
 constexpr size_t PIR_COUNT = 3;
+// ACCESS CONTROL START
+constexpr size_t MAX_USER_ACCOUNTS = 16;
+constexpr size_t MAX_MAC_LENGTH = 18;
+constexpr size_t MAX_NAME_LENGTH = 32;
+// FIX BUG-AUTH: SHA-256 hex requires 64 chars + 1 null terminator = 65 bytes.
+// The previous value of 64 forced strncpy(..., MAX_PASSWORD_LENGTH - 1) to
+// truncate every stored hash to 63 chars, so authenticateUser could never
+// match the freshly-recomputed 64-char hash. See loadUserAccounts() and the
+// /api/auth/addUser handler.
+constexpr size_t MAX_PASSWORD_LENGTH = 65;
 
 enum class RelayMode : uint8_t { OFF = 0, ON = 1, AUTO = 2 };
 enum class RelayState : uint8_t { OFF = 0, ON = 1 };
@@ -81,3 +91,20 @@ struct SystemRuntime {
   bool timeValid;
   bool nightLockActive;
 };
+
+struct UserAccount {
+  char macAddress[MAX_MAC_LENGTH];    // "AA:BB:CC:DD:EE:FF"
+  char displayName[MAX_NAME_LENGTH];  // Friendly name
+  char passwordHash[MAX_PASSWORD_LENGTH]; // SHA256 hex string
+  bool isAdmin;
+  bool canManageUsers;
+  uint64_t createdAt;
+  uint64_t lastAccess;
+};
+
+struct AccessControlRuntime {
+  UserAccount users[MAX_USER_ACCOUNTS];
+  uint8_t userCount;
+  bool enabled;
+};
+// ACCESS CONTROL END
