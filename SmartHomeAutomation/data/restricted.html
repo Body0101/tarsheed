@@ -272,10 +272,7 @@
 
     <div>
       <div class="field-label">Relay</div>
-      <select id="timerChannel">
-        <option value="0">Relay A</option>
-        <option value="1">Relay B</option>
-      </select>
+      <select id="timerChannel"></select>
     </div>
 
     <div>
@@ -323,26 +320,66 @@
     return `${m}m ${s}s left`;
   }
 
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function relayIndex(relay, fallbackIndex) {
+    return Number.isInteger(Number(relay && relay.index)) ? Number(relay.index) : fallbackIndex;
+  }
+
+  function relayDisplayName(relay, fallbackIndex) {
+    if (relay && relay.name) return relay.name;
+    return `Relay ${relayIndex(relay, fallbackIndex) + 1}`;
+  }
+
+  function selectedRelayExists(channel) {
+    return state && Array.isArray(state.relays)
+      && state.relays.some((relay, i) => relayIndex(relay, i) === channel);
+  }
+
+  function relayByChannel(channel) {
+    if (!state || !Array.isArray(state.relays)) return null;
+    return state.relays.find((relay, i) => relayIndex(relay, i) === channel) || null;
+  }
+
+  function syncRelaySelectOptions() {
+    if (!state || !Array.isArray(state.relays)) return;
+    const selected = timerCh.value;
+    timerCh.innerHTML = state.relays.map((relay, i) => {
+      const index = relayIndex(relay, i);
+      return `<option value="${index}">${escapeHtml(relayDisplayName(relay, i))}</option>`;
+    }).join("");
+    if (selectedRelayExists(Number(selected))) timerCh.value = selected;
+  }
+
   /* ── Render ─────────────────────────────── */
   function render() {
     if (!state || !Array.isArray(state.relays)) return;
     const locked = !!state.nightLock;
+    syncRelaySelectOptions();
 
     /* relay rows */
     relayEl.innerHTML = state.relays.map((r, i) => {
       const on = r.state === "ON";
-      const name = i === 0 ? "Relay A" : "Relay B";
+      const index = relayIndex(r, i);
+      const name = relayDisplayName(r, i);
       return `
         <div class="relay-row">
           <div>
-            <div class="relay-name">${name}</div>
+            <div class="relay-name">${escapeHtml(name)}</div>
             <div class="relay-state">${on ? "ON" : "OFF"}</div>
           </div>
           <label class="toggle-wrap">
-            <input class="toggle-input" type="checkbox" id="tog${i}"
+            <input class="toggle-input" type="checkbox" id="tog${index}"
               ${on ? "checked" : ""}
               ${locked && !on ? "disabled" : ""}
-              onchange="toggleRelay(${i}, this.checked)">
+              onchange="toggleRelay(${index}, this.checked)">
             <span class="toggle-track"></span>
           </label>
         </div>`;
@@ -350,7 +387,7 @@
 
     /* timer status (show for selected relay) */
     const ch = Number(timerCh.value);
-    const relay = state.relays[ch];
+    const relay = relayByChannel(ch);
     if (relay && relay.timerActive && relay.timerEnd) {
       const rem = relay.timerEnd - now();
       timerStatus.className = "timer-status running";
@@ -422,8 +459,10 @@
   startBtn.addEventListener("click", () => {
     const mins = Number(timerMin.value);
     if (!mins || mins < 1) { timerMin.focus(); return; }
+    const channel = Number(timerCh.value);
+    if (!selectedRelayExists(channel)) return;
     const n = new Date();
-    send({ type: "set_timer", channel: Number(timerCh.value),
+    send({ type: "set_timer", channel,
       durationMinutes: mins, target: "ON",
       epoch: Math.floor(n / 1000),
       year: n.getFullYear(), month: n.getMonth()+1, day: n.getDate(),
@@ -433,7 +472,9 @@
   });
 
   cancelBtn.addEventListener("click", () => {
-    send({ type: "cancel_timer", channel: Number(timerCh.value) });
+    const channel = Number(timerCh.value);
+    if (!selectedRelayExists(channel)) return;
+    send({ type: "cancel_timer", channel });
     send({ type: "get_state" });
   });
 

@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 #include <limits.h>
+#include <vector>
 
 #include "Config.h"
 #include "Utils.h"
@@ -82,7 +83,7 @@ void ControlEngine::tickFast() {
 
     processPirInputsLocked(nowEpoch);
 
-    Decision decisions[RELAY_COUNT];
+    std::vector<Decision> decisions(RELAY_COUNT);
     for (size_t i = 0; i < RELAY_COUNT; ++i) {
       decisions[i] = evaluateRelayLocked(i, nowEpoch);
     }
@@ -321,12 +322,7 @@ bool ControlEngine::cancelTimer(size_t relayIndex) {
 }
 
 // PIR MAPPING START
-bool ControlEngine::setPirMapping(const PIRMapping mappings[PIR_COUNT], String *error) {
-  if (!mappings) {
-    if (error) *error = "Missing PIR mapping payload.";
-    return false;
-  }
-
+bool ControlEngine::setPirMapping(const std::vector<PIRMapping> &mappings, String *error) {
   bool updated = false;
   withLock([&]() {
     if (blockNightLockFeatureLocked("pir_mapping.blocked_night_lock",
@@ -335,8 +331,13 @@ bool ControlEngine::setPirMapping(const PIRMapping mappings[PIR_COUNT], String *
                                     error)) {
       return;
     }
+    if (mappings.size() != PIR_COUNT) {
+      if (error) *error = "Expected one mapping entry per PIR.";
+      return;
+    }
     for (size_t i = 0; i < PIR_COUNT; ++i) {
       runtime_->pirMap[i] = mappings[i];
+      runtime_->pirMap[i].relayMask &= relayMaskForCount(RELAY_COUNT);
       storage_->persistPirMapping(i, runtime_->pirMap[i]);
     }
     updated = true;
@@ -505,6 +506,8 @@ String ControlEngine::buildStateJson() const {
     doc["dayPhase"] = dayPhaseToText(runtime_->dayPhase);
     doc["timeValid"] = runtime_->timeValid;
     doc["connectedClients"] = runtime_->connectedClients;
+    doc["relayCount"] = RELAY_COUNT;
+    doc["pirCount"] = PIR_COUNT;
     // Expose the actual operating mode derived from persisted relay settings
     // instead of current client connectivity.
     if (anyTimer) {
@@ -554,8 +557,15 @@ String ControlEngine::buildStateJson() const {
       pir["value"] = p.stableValue;
       pir["lastTrigger"] = p.lastTriggerEpoch;
       // PIR MAPPING START
-      pir["relayA"] = runtime_->pirMap[i].relayA;
-      pir["relayB"] = runtime_->pirMap[i].relayB;
+      const PIRMapping &mapping = runtime_->pirMap[i];
+      pir["relayMask"] = mapping.relayMask & relayMaskForCount(RELAY_COUNT);
+      JsonArray mappedRelays = pir["relays"].to<JsonArray>();
+      for (size_t relayIndex = 0; relayIndex < RELAY_COUNT; ++relayIndex) {
+        mappedRelays.add(mapping.controlsRelay(relayIndex));
+      }
+      // Backward-compatible fields for existing two-relay clients.
+      pir["relayA"] = RELAY_COUNT > 0 ? mapping.controlsRelay(0) : false;
+      pir["relayB"] = RELAY_COUNT > 1 ? mapping.controlsRelay(1) : false;
       // PIR MAPPING END
     }
     serializeJson(doc, payload);
@@ -647,16 +657,10 @@ void ControlEngine::processPirInputsLocked(uint64_t nowEpoch) {
     }
 
     // PIR MAPPING START
-    uint8_t relayMask = 0;
-    if (runtime_->pirMap[i].relayA) {
-      relayMask |= 0x01U;
-    }
-    if (runtime_->pirMap[i].relayB) {
-      relayMask |= 0x02U;
-    }
+    const uint64_t relayMask = runtime_->pirMap[i].relayMask & relayMaskForCount(RELAY_COUNT);
     // PIR MAPPING END
     for (size_t relayIndex = 0; relayIndex < RELAY_COUNT; ++relayIndex) {
-      if ((relayMask & (1 << relayIndex)) == 0) {
+      if ((relayMask & relayMaskForRelay(relayIndex)) == 0) {
         continue;
       }
       RelayRuntime &relay = runtime_->relays[relayIndex];
@@ -762,7 +766,10 @@ ControlEngine::Decision ControlEngine::evaluateRelayLocked(size_t relayIndex, ui
   return out;
 }
 
-void ControlEngine::applyDecisionsLocked(const Decision decisions[RELAY_COUNT], uint64_t nowEpoch) {
+void ControlEngine::applyDecisionsLocked(const std::vector<Decision> &decisions, uint64_t nowEpoch) {
+  if (decisions.size() < RELAY_COUNT) {
+    return;
+  }
   for (size_t i = 0; i < RELAY_COUNT; ++i) {
     RelayRuntime &relay = runtime_->relays[i];
     const RelayState oldState = relay.appliedState;

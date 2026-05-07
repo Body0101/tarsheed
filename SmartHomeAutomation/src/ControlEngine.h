@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <functional>
+#include <vector>
 
 #include "StorageLayer.h"
 #include "SystemTypes.h"
@@ -25,7 +26,7 @@ class ControlEngine {
   bool resetConsumption(String *error);
   // POWER RESET END
   // PIR MAPPING START
-  bool setPirMapping(const PIRMapping mappings[PIR_COUNT], String *error);
+  bool setPirMapping(const std::vector<PIRMapping> &mappings, String *error);
   // PIR MAPPING END
   // RATED DYNAMIC START
   bool setRatedPower(size_t relayIndex, float watts, String *error);
@@ -58,7 +59,7 @@ class ControlEngine {
   bool canTurnOnLocked() const;
   void processPirInputsLocked(uint64_t nowEpoch);
   Decision evaluateRelayLocked(size_t relayIndex, uint64_t nowEpoch);
-  void applyDecisionsLocked(const Decision decisions[RELAY_COUNT], uint64_t nowEpoch);
+  void applyDecisionsLocked(const std::vector<Decision> &decisions, uint64_t nowEpoch);
   uint64_t effectiveOnSecondsLocked(const RelayRuntime &relay, uint64_t nowEpoch) const;
   void closeActiveOnWindowLocked(RelayRuntime &relay, uint64_t nowEpoch);
   bool withLock(const std::function<void()> &fn) const;

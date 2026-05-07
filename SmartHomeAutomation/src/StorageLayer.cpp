@@ -107,12 +107,25 @@ void StorageLayer::loadRuntime(SystemRuntime *runtime)
   // After a page reload, the frontend reads the same live values back through
   // /api/state and WebSocket state_snapshot so the UI matches the saved system state.
   runtime->energyTrackingEnabled = preferences_.getBool("energy_en", false);
+  runtime->relays.resize(RELAY_COUNT);
+  runtime->pirs.resize(PIR_COUNT);
+  runtime->pirMap.resize(PIR_COUNT);
   // PIR MAPPING START
   for (size_t i = 0; i < PIR_COUNT; ++i)
   {
-    const uint8_t storedMask = preferences_.getUChar(keyFor("pm", i).c_str(), PIR_CONFIG[i].relayMask);
-    runtime->pirMap[i].relayA = (storedMask & 0x01U) != 0;
-    runtime->pirMap[i].relayB = (storedMask & 0x02U) != 0;
+    const uint64_t defaultMask = PIR_CONFIG[i].relayMask & relayMaskForCount(RELAY_COUNT);
+    const String key64 = keyFor("pm64", i);
+    const String legacyKey = keyFor("pm", i);
+    uint64_t storedMask = defaultMask;
+    if (preferences_.isKey(key64.c_str()))
+    {
+      storedMask = preferences_.getULong64(key64.c_str(), defaultMask);
+    }
+    else if (preferences_.isKey(legacyKey.c_str()))
+    {
+      storedMask = preferences_.getUChar(legacyKey.c_str(), static_cast<uint8_t>(defaultMask & 0xFFU));
+    }
+    runtime->pirMap[i].relayMask = storedMask & relayMaskForCount(RELAY_COUNT);
   }
   // PIR MAPPING END
   for (size_t i = 0; i < RELAY_COUNT; ++i)
@@ -291,16 +304,7 @@ void StorageLayer::persistPirMapping(size_t pirIndex, const PIRMapping &mapping)
   {
     return;
   }
-  uint8_t mask = 0;
-  if (mapping.relayA)
-  {
-    mask |= 0x01U;
-  }
-  if (mapping.relayB)
-  {
-    mask |= 0x02U;
-  }
-  preferences_.putUChar(keyFor("pm", pirIndex).c_str(), mask);
+  preferences_.putULong64(keyFor("pm64", pirIndex).c_str(), mapping.relayMask & relayMaskForCount(RELAY_COUNT));
   unlock();
 }
 // PIR MAPPING END

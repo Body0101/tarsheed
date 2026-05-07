@@ -109,8 +109,11 @@ void pushSystemEvent(const String &eventName, const String &message, bool buffer
 }
 
 void initRuntimeDefaults() {
-  memset(&gRuntime, 0, sizeof(gRuntime));
+  gRuntime.relays.assign(RELAY_COUNT, RelayRuntime{});
+  gRuntime.pirs.assign(PIR_COUNT, PirRuntime{});
+  gRuntime.pirMap.assign(PIR_COUNT, PIRMapping{});
   gRuntime.energyTrackingEnabled = false;
+  gRuntime.connectedClients = 0;
   gRuntime.dayPhase = DayPhase::DAY;
   gRuntime.timeValid = false;
   gRuntime.nightLockActive = false;
@@ -146,8 +149,7 @@ void initRuntimeDefaults() {
     gRuntime.pirs[i].lastChangeMs = 0;
     gRuntime.pirs[i].lastTriggerEpoch = 0;
     // PIR MAPPING START
-    gRuntime.pirMap[i].relayA = (PIR_CONFIG[i].relayMask & 0x01U) != 0;
-    gRuntime.pirMap[i].relayB = (PIR_CONFIG[i].relayMask & 0x02U) != 0;
+    gRuntime.pirMap[i].relayMask = PIR_CONFIG[i].relayMask & relayMaskForCount(RELAY_COUNT);
     // PIR MAPPING END
   }
 }

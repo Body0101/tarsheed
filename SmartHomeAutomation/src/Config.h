@@ -22,22 +22,25 @@ constexpr char AP_PASSWORD[] = "12345678";
 constexpr char STA_SSID[] = "";
 constexpr char STA_PASSWORD[] = "";
 
-constexpr RelayConfig RELAY_CONFIG[RELAY_COUNT] = {
+constexpr RelayConfig RELAY_CONFIG[] = {
     {26, "Relay A", 60.0f},
     {27, "Relay B", 100.0f},
 };
+constexpr size_t RELAY_COUNT = sizeof(RELAY_CONFIG) / sizeof(RELAY_CONFIG[0]);
+static_assert(RELAY_COUNT <= RELAY_MASK_BITS, "Relay count exceeds PIR relay-mask capacity.");
 
-// Most 2-channel ESP32 relay boards are active-low:
+// Most ESP32 relay boards are active-low:
 // LOW energizes the relay, HIGH releases it.
 // Keeping this configurable here lets the rest of the control logic
 // use natural ON/OFF semantics without inverting button behavior.
 constexpr bool RELAY_ACTIVE_LOW = true;
 
-constexpr PirConfig PIR_CONFIG[PIR_COUNT] = {
-    {32, 0b01, "PIR A"},  // drives Relay A
-    {33, 0b10, "PIR B"},  // drives Relay B
-    {25, 0b11, "PIR C"},  // shared area drives both relays
+constexpr PirConfig PIR_CONFIG[] = {
+    {32, relayMaskForRelay(0), "PIR A"},                              // drives Relay A
+    {33, relayMaskForRelay(1), "PIR B"},                              // drives Relay B
+    {25, relayMaskForRelay(0) | relayMaskForRelay(1), "PIR C"},       // shared area drives both relays
 };
+constexpr size_t PIR_COUNT = sizeof(PIR_CONFIG) / sizeof(PIR_CONFIG[0]);
 
 constexpr uint32_t CONTROL_TASK_PERIOD_MS = 50;
 constexpr uint32_t WEB_TASK_PERIOD_MS = 10;

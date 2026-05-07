@@ -1,9 +1,8 @@
 #pragma once
 
 #include <Arduino.h>
+#include <vector>
 
-constexpr size_t RELAY_COUNT = 2;
-constexpr size_t PIR_COUNT = 3;
 // ACCESS CONTROL START
 constexpr size_t MAX_USER_ACCOUNTS = 16;
 constexpr size_t MAX_MAC_LENGTH = 18;
@@ -28,14 +27,39 @@ struct RelayConfig {
 
 struct PirConfig {
   uint8_t pin;
-  uint8_t relayMask;  // bitmask where bit0 => relay0, bit1 => relay1
+  uint64_t relayMask;  // bitmask where bitN => relay N
   const char *name;
 };
 
 // PIR MAPPING START
+constexpr size_t RELAY_MASK_BITS = sizeof(uint64_t) * 8;
+
+constexpr uint64_t relayMaskForRelay(size_t relayIndex) {
+  return relayIndex < RELAY_MASK_BITS ? (uint64_t{1} << relayIndex) : 0ULL;
+}
+
+inline uint64_t relayMaskForCount(size_t relayCount) {
+  if (relayCount >= RELAY_MASK_BITS) {
+    return UINT64_MAX;
+  }
+  return relayCount == 0 ? 0ULL : ((uint64_t{1} << relayCount) - 1ULL);
+}
+
 struct PIRMapping {
-  bool relayA;
-  bool relayB;
+  uint64_t relayMask;
+
+  bool controlsRelay(size_t relayIndex) const {
+    return (relayMask & relayMaskForRelay(relayIndex)) != 0;
+  }
+
+  void setRelay(size_t relayIndex, bool enabled) {
+    const uint64_t bit = relayMaskForRelay(relayIndex);
+    if (enabled) {
+      relayMask |= bit;
+    } else {
+      relayMask &= ~bit;
+    }
+  }
 };
 // PIR MAPPING END
 
@@ -80,10 +104,10 @@ struct PirRuntime {
 };
 
 struct SystemRuntime {
-  RelayRuntime relays[RELAY_COUNT];
-  PirRuntime pirs[PIR_COUNT];
+  std::vector<RelayRuntime> relays;
+  std::vector<PirRuntime> pirs;
   // PIR MAPPING START
-  PIRMapping pirMap[PIR_COUNT];
+  std::vector<PIRMapping> pirMap;
   // PIR MAPPING END
   bool energyTrackingEnabled;
   uint16_t connectedClients;

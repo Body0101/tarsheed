@@ -1469,7 +1469,7 @@
 
     .mapping-row {
       display: grid;
-      grid-template-columns: minmax(0, 1.1fr) repeat(2, minmax(0, 1fr));
+      grid-template-columns: minmax(0, 1.1fr) repeat(var(--relay-count, 2), minmax(0, 1fr));
       gap: 12px;
       align-items: center;
       padding: 14px 16px;
@@ -2534,10 +2534,7 @@
           <div class="form-grid cols-2">
             <label class="field">
               <span data-i18n="relay_channel_label">Relay Channel</span>
-              <select id="timerChannel">
-                <option value="0" data-i18n="relay_a">Relay A</option>
-                <option value="1" data-i18n="relay_b">Relay B</option>
-              </select>
+              <select id="timerChannel"></select>
             </label>
             <label class="field">
               <span data-i18n="duration_minutes_label">Duration (minutes)</span>
@@ -2812,7 +2809,7 @@
     const pirMappingList = document.getElementById("pirMappingList");
     const savePirMappingBtn = document.getElementById("savePirMappingBtn");
     const sensorIndicatorList = document.getElementById("sensorIndicatorList");
-    const sensorFlashUntil = Array.from({ length: 3 }, () => 0);
+    let sensorFlashUntil = [];
 
     const wsStatus = document.getElementById("wsStatus");
     const wsStatusText = document.getElementById("wsStatusText");
@@ -3247,8 +3244,13 @@
         const stored = JSON.parse(localStorage.getItem(RELAY_NAMES_KEY) || "{}");
         if (index !== undefined && stored[index]) return stored[index];
       } catch {}
-      if (name === "Relay A") return t("relay_a");
-      if (name === "Relay B") return t("relay_b");
+      const relayMatch = String(name || "").match(/^Relay\s+(.+)$/i);
+      if (relayMatch) {
+        const suffix = relayMatch[1];
+        if (suffix === "A") return t("relay_a");
+        if (suffix === "B") return t("relay_b");
+        return currentLanguage === "ar" ? `المرحّل ${suffix}` : `Relay ${suffix}`;
+      }
       return name;
     }
     // UPDATED: check localStorage custom name first, then fall back to default
@@ -3257,12 +3259,11 @@
         const stored = JSON.parse(localStorage.getItem(PIR_NAMES_KEY) || "{}");
         if (index !== undefined && stored[index]) return stored[index];
       } catch {}
-      const map = {
-        "PIR A": currentLanguage === "ar" ? "مستشعر PIR A" : "PIR A",
-        "PIR B": currentLanguage === "ar" ? "مستشعر PIR B" : "PIR B",
-        "PIR C": currentLanguage === "ar" ? "مستشعر PIR C" : "PIR C"
-      };
-      return map[name] || name;
+      const pirMatch = String(name || "").match(/^PIR\s+(.+)$/i);
+      if (pirMatch) {
+        return currentLanguage === "ar" ? `مستشعر PIR ${pirMatch[1]}` : `PIR ${pirMatch[1]}`;
+      }
+      return name;
     }
     function translateModeValue(value) {
       const keyMap = {
@@ -3458,9 +3459,40 @@
         </div>`;
     }
 
+    function relayIndex(relay, fallbackIndex = 0) {
+      const parsed = Number(relay && relay.index);
+      return Number.isInteger(parsed) ? parsed : fallbackIndex;
+    }
+
     function relayByIndex(index) {
       if (!state || !Array.isArray(state.relays)) return null;
-      return state.relays.find((relay) => Number(relay.index) === Number(index)) || null;
+      return state.relays.find((relay, fallbackIndex) => relayIndex(relay, fallbackIndex) === Number(index)) || null;
+    }
+
+    function relayDisplayName(relay, fallbackIndex = 0) {
+      if (!relay) return t("relay_label", { index: fallbackIndex + 1 });
+      const index = relayIndex(relay, fallbackIndex);
+      return translateRelayName(relay.name || t("relay_label", { index: index + 1 }), index);
+    }
+
+    function syncRelaySelectOptions() {
+      if (!timerChannel || !state || !Array.isArray(state.relays)) return;
+      const previous = timerChannel.value;
+      timerChannel.innerHTML = state.relays.map((relay, index) => {
+        const value = relayIndex(relay, index);
+        return `<option value="${value}">${escapeHtml(relayDisplayName(relay, index))}</option>`;
+      }).join("");
+      if (state.relays.some((relay, index) => String(relayIndex(relay, index)) === previous)) {
+        timerChannel.value = previous;
+      } else if (state.relays.length > 0) {
+        timerChannel.value = String(relayIndex(state.relays[0], 0));
+      }
+    }
+
+    function ensureSensorFlashCapacity() {
+      const count = state && Array.isArray(state.pirs) ? state.pirs.length : 0;
+      if (sensorFlashUntil.length === count) return;
+      sensorFlashUntil = Array.from({ length: count }, (_, index) => sensorFlashUntil[index] || 0);
     }
 
     function buildRelayAdvancedDetails(index) {
@@ -3484,7 +3516,7 @@
       return `
         <p class="help-text">${escapeHtml(t("timer_help"))}</p>
         <div class="detail-grid" style="margin-top:14px;">
-          ${detailChipHtml(t("relay_channel_label"), relay ? translateRelayName(relay.name) : t("relay_label", { index: Number(timerChannel.value) + 1 }))}
+          ${detailChipHtml(t("relay_channel_label"), relay ? relayDisplayName(relay) : t("relay_label", { index: Number(timerChannel.value) + 1 }))}
           ${detailChipHtml(t("duration_minutes_label"), `${Number(timerMinutes.value || 0)} m`)}
           ${detailChipHtml(t("target_state_label"), translateModeValue(timerTarget.value))}
         </div>`;
@@ -3645,7 +3677,8 @@
       if (relayContainer && relayContainer.querySelector('.rename-inline')) return;
       const nightLock = isNightLockActive();
       relayContainer.innerHTML = state.relays.map((relay) => {
-        const relayGlyph = relay.index === 0 ? "A" : relay.index === 1 ? "B" : String(relay.index + 1);
+        const index = relayIndex(relay, 0);
+        const relayGlyph = index >= 0 && index < 26 ? String.fromCharCode(65 + index) : String(index + 1);
         const timerVisual = getTimerVisualState(relay);
         const showTimerVisual = shouldShowTimerVisual(relay, timerVisual);
         const ringRadius = 40;
@@ -3658,8 +3691,8 @@
             <div class="relay-glyph">${escapeHtml(relayGlyph)}</div>
             <div>
               <div class="relay-name-row">
-                <div class="relay-name">${escapeHtml(translateRelayName(relay.name, relay.index))}</div>
-                ${currentUserIsAdmin ? `<button class="rename-btn" title="Rename relay" onclick="startRenameRelay(${relay.index}, this)" type="button"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>` : ""}
+                <div class="relay-name">${escapeHtml(relayDisplayName(relay))}</div>
+                ${currentUserIsAdmin ? `<button class="rename-btn" title="Rename relay" onclick="startRenameRelay(${index}, this)" type="button"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>` : ""}
                 ${relayBadge(relay.state)}
               </div>
               <div class="relay-meta">${escapeHtml(timerRemainingText(relay))}</div>
@@ -3741,23 +3774,33 @@
     }
 
     function renderPirMapping(options = {}) {
-      if (!state || !Array.isArray(state.pirs)) return;
+      if (!state || !Array.isArray(state.pirs) || !Array.isArray(state.relays)) return;
       // Preserve unsaved user selections; authoritative snapshots resume after Save Mapping succeeds.
       if (pirMappingDirty && !options.force) return;
       const nightLocked = isNightLockActive();
-      pirMappingList.innerHTML = state.pirs.map((pir) => `
-      <div class="mapping-row">
+      const relayCount = state.relays.length;
+      pirMappingList.innerHTML = state.pirs.map((pir) => {
+        const mappedRelays = Array.isArray(pir.relays)
+          ? pir.relays
+          : state.relays.map((relay, relayPosition) => {
+              const index = relayIndex(relay, relayPosition);
+              return index === 0 ? !!pir.relayA : index === 1 ? !!pir.relayB : false;
+            });
+        const relayControls = state.relays.map((relay, relayPosition) => {
+          const index = relayIndex(relay, relayPosition);
+          return `
+        <label class="mapping-check">
+          <input id="pir${pir.index}Relay${index}" type="checkbox" ${mappedRelays[relayPosition] ? "checked" : ""} ${nightLocked ? "disabled" : ""}>
+          <span>${escapeHtml(relayDisplayName(relay, relayPosition))}</span>
+        </label>`;
+        }).join("");
+        return `
+      <div class="mapping-row" style="--relay-count:${relayCount}">
         <div class="mapping-label">${escapeHtml(translatePirName(pir.name, pir.index))}</div>
-        <label class="mapping-check">
-          <input id="pir${pir.index}RelayA" type="checkbox" ${pir.relayA ? "checked" : ""} ${nightLocked ? "disabled" : ""}>
-          <span>${escapeHtml(t("relay_a"))}</span>
-        </label>
-        <label class="mapping-check">
-          <input id="pir${pir.index}RelayB" type="checkbox" ${pir.relayB ? "checked" : ""} ${nightLocked ? "disabled" : ""}>
-          <span>${escapeHtml(t("relay_b"))}</span>
-        </label>
+        ${relayControls}
       </div>
-    `).join("");
+    `;
+      }).join("");
     }
 
     function isSensorIndicatorActive(pir) {
@@ -3767,6 +3810,7 @@
     }
     function renderSensorIndicators() {
       if (!state || !Array.isArray(state.pirs)) return;
+      ensureSensorFlashCapacity();
       // FIXED RACE CONDITION: same guard as renderRelays — protect active PIR rename widget
       if (sensorIndicatorList && sensorIndicatorList.querySelector('.rename-inline')) return;
       sensorIndicatorList.innerHTML = state.pirs.map((pir) => {
@@ -3785,6 +3829,7 @@
       }).join("");
     }
     function flashSensorIndicator(index) {
+      ensureSensorFlashCapacity();
       if (!Number.isInteger(index) || index < 0 || index >= sensorFlashUntil.length) return;
       sensorFlashUntil[index] = Date.now() + 1000;
       renderSensorIndicators();
@@ -3859,6 +3904,7 @@
 
     function renderHeader() {
       if (!state) return;
+      syncRelaySelectOptions();
       modeStatus.textContent = t("mode_status", { value: translateModeValue(state.systemMode || "--") });
       dayNightStatus.textContent = t("day_night_status", {
         phase: translateDayPhase(state.dayPhase || "--"),
@@ -3886,10 +3932,11 @@
           ON: "log_badge_on", OFF: "log_badge_off",
           TIMER: "log_badge_timer", ERROR: "log_badge_error"
         }[type] || "log_badge_timer";
-        const relayLabel = Number.isInteger(entry.relay) && entry.relay >= 0 && state && Array.isArray(state.relays) && state.relays[entry.relay]
-          ? translateRelayName(state.relays[entry.relay].name)
+        const relay = Number.isInteger(entry.relay) && entry.relay >= 0 ? relayByIndex(entry.relay) : null;
+        const relayLabel = relay
+          ? relayDisplayName(relay, entry.relay)
           : Number.isInteger(entry.relay) && entry.relay >= 0
-            ? t("relay_label", { index: entry.relay })
+            ? t("relay_label", { index: entry.relay + 1 })
             : t("system_label");
         const macLabel = entry.mac || "SYSTEM";
         const timeLabel = entry.time || formatTimestamp(entry.ts);
@@ -3995,12 +4042,20 @@
       }
     }
     async function savePirMapping() {
-      if (!state || !Array.isArray(state.pirs)) return;
+      if (!state || !Array.isArray(state.pirs) || !Array.isArray(state.relays)) return;
       if (isNightLockActive()) { showToast("Night Lock Active"); return; }
-      const mappings = state.pirs.map((pir) => ({
-        relayA: !!document.getElementById(`pir${pir.index}RelayA`)?.checked,
-        relayB: !!document.getElementById(`pir${pir.index}RelayB`)?.checked
-      }));
+      const mappings = state.pirs.map((pir) => {
+        const relays = state.relays.map((relay, relayPosition) => {
+          const index = relayIndex(relay, relayPosition);
+          return !!document.getElementById(`pir${pir.index}Relay${index}`)?.checked;
+        });
+        return {
+          relays,
+          // Backward-compatible fields for older two-relay firmware builds.
+          relayA: !!relays[0],
+          relayB: !!relays[1]
+        };
+      });
       try {
         const response = await fetch("/api/pirMapping", {
           method: "POST",
@@ -4147,12 +4202,14 @@
       const minutes = Number(timerMinutes.value);
       const target = timerTarget.value;
       if (isNightLockActive()) { showToast("Night Lock Active"); return; }
+      if (!Number.isInteger(channel) || !relayByIndex(channel)) { showToast("No relay selected."); return; }
       if (!minutes || minutes < 1) { showToast("Timer duration must be at least 1 minute."); return; }
       sendCommandThenRefresh({ type: "set_timer", channel, durationMinutes: minutes, target, ...buildDeviceTimePayload() });
     });
     timerTarget.addEventListener("change", () => { updateNightLockUi(); });
     cancelTimerBtn.addEventListener("click", () => {
       const channel = Number(timerChannel.value);
+      if (!Number.isInteger(channel) || !relayByIndex(channel)) { showToast("No relay selected."); return; }
       sendCommandThenRefresh({ type: "cancel_timer", channel });
     });
     energyTrackingToggle.addEventListener("change", () => {

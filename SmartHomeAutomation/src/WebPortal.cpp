@@ -10,6 +10,7 @@
 #include <mbedtls/md.h>
 #include <mbedtls/sha256.h>
 #include <time.h>
+#include <vector>
 
 #include "Utils.h"
 
@@ -142,12 +143,41 @@ namespace
       for (JsonPairConst pair : item)
       {
         const String key = pair.key().c_str();
-        if ((key != "relayA" && key != "relayB") || !pair.value().is<bool>())
+        if (key == "relays")
+        {
+          JsonArrayConst relayItems = pair.value().as<JsonArrayConst>();
+          if (relayItems.isNull() || relayItems.size() != RELAY_COUNT)
+          {
+            return false;
+          }
+          for (JsonVariantConst relayValue : relayItems)
+          {
+            if (!relayValue.is<bool>())
+            {
+              return false;
+            }
+          }
+          continue;
+        }
+        if ((key == "relayA" || key == "relayB") && pair.value().is<bool>())
+        {
+          continue;
+        }
+        if (key == "relayMask" && (pair.value().is<uint64_t>() || pair.value().is<uint32_t>()))
+        {
+          continue;
+        }
+        return false;
+      }
+      if (!item["relays"].isNull())
+      {
+        JsonArrayConst relayItems = item["relays"].as<JsonArrayConst>();
+        if (relayItems.isNull() || relayItems.size() != RELAY_COUNT)
         {
           return false;
         }
       }
-      if (!item["relayA"].is<bool>() || !item["relayB"].is<bool>())
+      else if (item["relayMask"].isNull() && !item["relayA"].is<bool>() && !item["relayB"].is<bool>())
       {
         return false;
       }
@@ -287,7 +317,11 @@ namespace
   bool shouldRateLimitRelayCommand(size_t relayIndex)
   {
     constexpr uint32_t RELAY_COMMAND_RATE_LIMIT_MS = 120UL;
-    static uint32_t lastRelayCommandMs[RELAY_COUNT] = {};
+    static std::vector<uint32_t> lastRelayCommandMs;
+    if (lastRelayCommandMs.size() != RELAY_COUNT)
+    {
+      lastRelayCommandMs.assign(RELAY_COUNT, 0);
+    }
 
     if (relayIndex >= RELAY_COUNT)
     {
@@ -897,11 +931,28 @@ Serial.printf("[AddUser] Requester OK: %s\n", requester->macAddress);
       return;
     }
 
-    PIRMapping mappings[PIR_COUNT]{};
+    std::vector<PIRMapping> mappings(PIR_COUNT);
     for (size_t i = 0; i < PIR_COUNT; ++i) {
       JsonObject item = mappingsJson[i];
-      mappings[i].relayA = item["relayA"] | false;
-      mappings[i].relayB = item["relayB"] | false;
+      uint64_t relayMask = 0;
+      if (!item["relays"].isNull()) {
+        JsonArray relays = item["relays"].as<JsonArray>();
+        for (size_t relayIndex = 0; relayIndex < RELAY_COUNT; ++relayIndex) {
+          if (relays[relayIndex] | false) {
+            relayMask |= relayMaskForRelay(relayIndex);
+          }
+        }
+      } else if (!item["relayMask"].isNull()) {
+        relayMask = item["relayMask"].as<uint64_t>();
+      } else {
+        if (RELAY_COUNT > 0 && (item["relayA"] | false)) {
+          relayMask |= relayMaskForRelay(0);
+        }
+        if (RELAY_COUNT > 1 && (item["relayB"] | false)) {
+          relayMask |= relayMaskForRelay(1);
+        }
+      }
+      mappings[i].relayMask = relayMask & relayMaskForCount(RELAY_COUNT);
     }
 
     String errorText;
@@ -957,7 +1008,7 @@ Serial.printf("[AddUser] Requester OK: %s\n", requester->macAddress);
       return;
     }
 
-    const size_t channel = static_cast<size_t>(doc["channel"] | 99);
+    const size_t channel = static_cast<size_t>(doc["channel"] | static_cast<int>(RELAY_COUNT));
     const float powerW = doc["powerW"] | 0.0f;
     String errorText;
     const bool ok = engine_->setRatedPower(channel, powerW, &errorText);
@@ -1346,7 +1397,7 @@ void WebPortal::handleClientMessage(uint8_t clientId, const String &payload)
       sendCommandAck(clientId, false, "Invalid manual command.");
       return;
     }
-    const size_t channel = static_cast<size_t>(doc["channel"] | 99);
+    const size_t channel = static_cast<size_t>(doc["channel"] | static_cast<int>(RELAY_COUNT));
     const RelayMode mode = relayModeFromText(modeText);
     if (shouldRateLimitRelayCommand(channel))
     {
@@ -1394,7 +1445,7 @@ void WebPortal::handleClientMessage(uint8_t clientId, const String &payload)
       sendCommandAck(clientId, false, "Invalid time fields in timer request.");
       return;
     }
-    const size_t channel = static_cast<size_t>(doc["channel"] | 99);
+    const size_t channel = static_cast<size_t>(doc["channel"] | static_cast<int>(RELAY_COUNT));
     uint32_t durationMinutes = doc["durationMinutes"] | 0;
     if (durationMinutes == 0 && doc["durationSec"].is<uint32_t>())
     {
@@ -1429,7 +1480,7 @@ void WebPortal::handleClientMessage(uint8_t clientId, const String &payload)
       sendCommandAck(clientId, false, "Invalid timer request.");
       return;
     }
-    const size_t channel = static_cast<size_t>(doc["channel"] | 99);
+    const size_t channel = static_cast<size_t>(doc["channel"] | static_cast<int>(RELAY_COUNT));
     const bool ok = engine_->cancelTimer(channel);
     sendCommandAck(clientId, ok, ok ? "Timer canceled." : "No active timer on this relay.");
     if (ok)
