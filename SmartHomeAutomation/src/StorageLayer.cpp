@@ -83,6 +83,7 @@ bool StorageLayer::begin()
     {
       ensureFileExists(path);
     }
+    ensureFileExists(FILE_CLOUD_QUEUE);
   }
   return ok;
 }
@@ -469,7 +470,9 @@ bool StorageLayer::factoryReset()
   }
 
   // Remove runtime-generated files only. Do not erase /index.html or other uploaded UI assets.
-  return clearLogFiles();
+  const bool logsCleared = clearLogFiles();
+  const bool cloudQueueCleared = deleteFile(FILE_CLOUD_QUEUE);
+  return logsCleared && cloudQueueCleared;
 }
 // STORAGE END
 
@@ -535,6 +538,103 @@ void StorageLayer::appendPending(const String &jsonLine)
   trimFileBySize(FILE_PENDING, PENDING_MAX_BYTES);
   unlock();
 }
+
+// CLOUD SYNC START
+void StorageLayer::appendCloudQueue(const String &jsonLine)
+{
+  if (!lock())
+  {
+    return;
+  }
+  appendLine(FILE_CLOUD_QUEUE, jsonLine);
+  trimFileBySize(FILE_CLOUD_QUEUE, CLOUD_QUEUE_MAX_BYTES);
+  unlock();
+}
+
+bool StorageLayer::readCloudQueueHead(String *lineOut) const
+{
+  if (!lineOut || !lock())
+  {
+    return false;
+  }
+  if (!LittleFS.exists(FILE_CLOUD_QUEUE))
+  {
+    ensureFileExists(FILE_CLOUD_QUEUE);
+    unlock();
+    return false;
+  }
+  File input = LittleFS.open(FILE_CLOUD_QUEUE, FILE_READ);
+  if (!input)
+  {
+    unlock();
+    return false;
+  }
+  bool found = false;
+  while (input.available())
+  {
+    String line = input.readStringUntil('\n');
+    line.trim();
+    if (!line.isEmpty())
+    {
+      *lineOut = line;
+      found = true;
+      break;
+    }
+  }
+  input.close();
+  unlock();
+  return found;
+}
+
+void StorageLayer::dropCloudQueueHead()
+{
+  if (!lock())
+  {
+    return;
+  }
+  if (!LittleFS.exists(FILE_CLOUD_QUEUE))
+  {
+    ensureFileExists(FILE_CLOUD_QUEUE);
+    unlock();
+    return;
+  }
+  File input = LittleFS.open(FILE_CLOUD_QUEUE, FILE_READ);
+  if (!input)
+  {
+    unlock();
+    return;
+  }
+  File output = LittleFS.open("/cloud_queue.tmp", FILE_WRITE);
+  if (!output)
+  {
+    input.close();
+    unlock();
+    return;
+  }
+
+  bool dropped = false;
+  while (input.available())
+  {
+    String line = input.readStringUntil('\n');
+    line.trim();
+    if (line.isEmpty())
+    {
+      continue;
+    }
+    if (!dropped)
+    {
+      dropped = true;
+      continue;
+    }
+    output.println(line);
+  }
+  input.close();
+  output.close();
+  LittleFS.remove(FILE_CLOUD_QUEUE);
+  LittleFS.rename("/cloud_queue.tmp", FILE_CLOUD_QUEUE);
+  unlock();
+}
+// CLOUD SYNC END
 
 void StorageLayer::appendEventJson(const String &jsonLine)
 {
@@ -656,8 +756,10 @@ void StorageLayer::cleanupDaily(uint64_t nowEpoch)
   }
   compactByAge(FILE_LOGS, minEpoch);
   compactByAge(FILE_PENDING, minEpoch);
+  compactByAge(FILE_CLOUD_QUEUE, minEpoch);
   trimFileBySize(FILE_LOGS, LOG_MAX_BYTES);
   trimFileBySize(FILE_PENDING, PENDING_MAX_BYTES);
+  trimFileBySize(FILE_CLOUD_QUEUE, CLOUD_QUEUE_MAX_BYTES);
   unlock();
 }
 

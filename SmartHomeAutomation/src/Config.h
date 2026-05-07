@@ -63,6 +63,45 @@ constexpr uint8_t WS_MAX_CLIENTS = 8;
 
 constexpr uint8_t WATCHDOG_TIMEOUT_SECONDS = 12;
 
+// CLOUD SYNC START
+// Hybrid online/offline mode is additive. When Supabase credentials are not
+// injected at build time, all cloud code stays disabled and offline behavior is
+// unchanged.
+#ifndef CLOUD_SYNC_ENABLED
+#define CLOUD_SYNC_ENABLED 0
+#endif
+
+#ifndef SUPABASE_URL
+#define SUPABASE_URL ""
+#endif
+
+#ifndef SUPABASE_PUBLISHABLE_KEY
+#define SUPABASE_PUBLISHABLE_KEY ""
+#endif
+
+#ifndef CLOUD_DEVICE_ID
+#define CLOUD_DEVICE_ID ""
+#endif
+
+// Optional shared token expected inside remote command JSON. Keep empty only
+// when Supabase RLS/Edge Functions already enforce command authorization.
+#ifndef CLOUD_COMMAND_TOKEN
+#define CLOUD_COMMAND_TOKEN ""
+#endif
+
+constexpr uint32_t CLOUD_TASK_PERIOD_MS = 100;
+constexpr uint32_t CLOUD_HTTP_TIMEOUT_MS = 1200;
+constexpr uint32_t CLOUD_STATE_SYNC_INTERVAL_MS = 15000;
+constexpr uint32_t CLOUD_COMMAND_POLL_INTERVAL_MS = 2500;
+constexpr uint32_t CLOUD_QUEUE_FLUSH_INTERVAL_MS = 5000;
+constexpr uint32_t CLOUD_QUEUE_MAX_BYTES = 32 * 1024;
+constexpr uint8_t CLOUD_EVENT_QUEUE_LENGTH = 32;
+constexpr uint8_t CLOUD_MAX_COMMANDS_PER_POLL = 2;
+constexpr uint16_t CLOUD_MAX_RESPONSE_BYTES = 4096;
+constexpr char FILE_CLOUD_QUEUE[] = "/cloud_queue.jsonl";
+constexpr char CLOUD_LAST_COMMAND_KEY[] = "cloud_last_cmd";
+// CLOUD SYNC END
+
 constexpr char PREF_NAMESPACE[] = "smart_home";
 constexpr char FILE_LOGS[] = "/logs.jsonl";
 constexpr char FILE_PENDING[] = "/pending.jsonl";

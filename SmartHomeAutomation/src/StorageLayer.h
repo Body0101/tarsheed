@@ -71,6 +71,13 @@ void setLogsEnabled(bool enabled);
   void appendEvent(uint64_t epoch, const String &type, const String &message, int channel = -1);
   void appendEventJson(const String &jsonLine);
   void appendPending(const String &jsonLine);
+  // CLOUD SYNC START
+  // Separate bounded FIFO for cloud retry events. PIR motion/idle history is
+  // intentionally never written here by CloudSyncService.
+  void appendCloudQueue(const String &jsonLine);
+  bool readCloudQueueHead(String *lineOut) const;
+  void dropCloudQueueHead();
+  // CLOUD SYNC END
   String readRecentLogsJson(uint16_t limit) const;
   void flushPending(const std::function<void(const String &line)> &sender);
   void cleanupDaily(uint64_t nowEpoch);

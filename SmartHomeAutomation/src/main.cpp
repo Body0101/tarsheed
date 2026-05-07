@@ -6,6 +6,7 @@
 #include <LittleFS.h>
 #include <type_traits>
 #include <utility>
+#include "CloudSyncService.h"
 #include "Config.h"
 #include "ControlEngine.h"
 #include "StorageLayer.h"
@@ -17,12 +18,14 @@ StorageLayer gStorage;
 TimeKeeper gTimeKeeper;
 ControlEngine gControl;
 WebPortal gWebPortal;
+CloudSyncService gCloudSync;
 
 SystemRuntime gRuntime{};
 SemaphoreHandle_t gStateMutex = nullptr;
 
 TaskHandle_t gControlTaskHandle = nullptr;
 TaskHandle_t gNetworkTaskHandle = nullptr;
+TaskHandle_t gCloudTaskHandle = nullptr;
 
 namespace {
 enum class WiFiApRecoveryState : uint8_t {
@@ -387,6 +390,18 @@ void networkTask(void *parameter) {
   }
 }
 
+void cloudTask(void *parameter) {
+  (void)parameter;
+  esp_task_wdt_add(NULL);
+  while (true) {
+    // Cloud sync is intentionally isolated from the local network task so slow
+    // Supabase HTTP/retry work cannot stall WebServer/WebSocket handling.
+    gCloudSync.loop();
+    esp_task_wdt_reset();
+    vTaskDelay(pdMS_TO_TICKS(CLOUD_TASK_PERIOD_MS));
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   delay(200);
@@ -447,9 +462,11 @@ void setup() {
   initWatchdog();
 
   gControl.begin(&gRuntime, &gStorage, &gTimeKeeper, gStateMutex);
+  gCloudSync.begin(&gControl, &gStorage, &gTimeKeeper);
   gWebPortal.begin(&gControl, &gStorage, &gTimeKeeper);
   gControl.setEventCallback([](const String &json, bool bufferIfOffline) {
     gWebPortal.enqueueEvent(json, bufferIfOffline);
+    gCloudSync.enqueueLocalEvent(json);
   });
 
   pushSystemEvent("system.boot", "System boot completed.");
@@ -457,6 +474,9 @@ void setup() {
 
   xTaskCreatePinnedToCore(controlTask, "control_task", 8192, nullptr, 2, &gControlTaskHandle, 1);
   xTaskCreatePinnedToCore(networkTask, "network_task", 12288, nullptr, 1, &gNetworkTaskHandle, 0);
+  if (gCloudSync.isConfigured()) {
+    xTaskCreatePinnedToCore(cloudTask, "cloud_task", 12288, nullptr, 1, &gCloudTaskHandle, 0);
+  }
 }
 
 void loop() {
