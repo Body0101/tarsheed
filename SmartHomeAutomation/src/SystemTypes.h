@@ -98,6 +98,9 @@ struct UserAccount {
   char passwordHash[MAX_PASSWORD_LENGTH]; // SHA256 hex string
   bool isAdmin;
   bool canManageUsers;
+  // RESTRICTED MODE: when true, this user is always redirected to the
+  // restricted page (relay+timer only) and cannot access the full dashboard.
+  bool restricted;
   uint64_t createdAt;
   uint64_t lastAccess;
 };

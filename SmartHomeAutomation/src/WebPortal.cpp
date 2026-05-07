@@ -426,12 +426,18 @@ void WebPortal::setupRoutes()
     // (which is gated behind manageUsers and would 403 for ordinary users).
     bool isAdminFlag = false;
     bool canManageFlag = false;
+    bool isRestrictedFlag = false;
     if (authed) {
       UserAccount *u = storage_->findUserByMac(mac.c_str());
-      if (u) { isAdminFlag = u->isAdmin; canManageFlag = u->canManageUsers; }
+      if (u) {
+        isAdminFlag = u->isAdmin;
+        canManageFlag = u->canManageUsers;
+        isRestrictedFlag = u->restricted;
+      }
     }
     doc["isAdmin"] = isAdminFlag;
     doc["canManageUsers"] = canManageFlag;
+    doc["isRestricted"] = isRestrictedFlag;
     String payload;
     serializeJson(doc, payload);
     server_.send(200, "application/json", payload); });
@@ -547,6 +553,8 @@ Serial.printf("[AddUser] Requester OK: %s\n", requester->macAddress);
 
     newUser.isAdmin = doc["isAdmin"] | false;
     newUser.canManageUsers = doc["canManageUsers"] | false;
+    // RESTRICTED MODE: persist the restricted flag set by the admin.
+    newUser.restricted = doc["isRestricted"] | false;
     newUser.createdAt = time(nullptr);
 
     // STORAGE MANAGEMENT: pre-flight check. Detect a full roster BEFORE
@@ -612,6 +620,7 @@ Serial.printf("[AddUser] Requester OK: %s\n", requester->macAddress);
       userObj["name"] = accessControl_.users[i].displayName;
       userObj["isAdmin"] = accessControl_.users[i].isAdmin;
       userObj["canManageUsers"] = accessControl_.users[i].canManageUsers;
+      userObj["isRestricted"] = accessControl_.users[i].restricted;
       userObj["lastAccess"] = accessControl_.users[i].lastAccess;
     }
 
@@ -798,6 +807,22 @@ Serial.printf("[AddUser] Requester OK: %s\n", requester->macAddress);
       sendCaptivePortalResponse(302);
       return;
     }
+    // RESTRICTED MODE: if the connecting client's MAC is registered as
+    // restricted, serve the restricted relay+timer page instead of the full
+    // dashboard. Non-authenticated clients are not redirected here because
+    // they will be caught by the onNotFound gate on any protected route.
+    if (ENABLE_ACCESS_CONTROL) {
+      String mac = macFromHttpClient();
+      if (validateMacAccess(mac)) {
+        UserAccount *u = storage_->findUserByMac(mac.c_str());
+        if (u && u->restricted) {
+          server_.sendHeader("Location", "/restricted.html", true);
+          server_.sendHeader("Cache-Control", "no-cache", true);
+          server_.send(302, "text/plain", "");
+          return;
+        }
+      }
+    }
     File file = LittleFS.open("/index.html", FILE_READ);
     if (!file) {
       server_.send(500, "text/plain", "Missing /index.html on LittleFS.");
@@ -972,6 +997,18 @@ Serial.printf("[AddUser] Requester OK: %s\n", requester->macAddress);
   File file = LittleFS.open(FILE_UNAUTHORIZED, FILE_READ);
   if (!file) {
     server_.send(500, "text/plain", "Missing unauthorized page.");
+    return;
+  }
+  server_.streamFile(file, "text/html");
+  file.close(); });
+  // RESTRICTED MODE: serve the restricted relay+timer page.
+  // Authenticated-but-restricted users reach this via the / redirect.
+  // The page itself also validates auth via /api/auth/status on load.
+  server_.on("/restricted.html", HTTP_GET, [this]()
+             {
+  File file = LittleFS.open("/restricted.html", FILE_READ);
+  if (!file) {
+    server_.send(500, "text/plain", "Missing /restricted.html on LittleFS.");
     return;
   }
   server_.streamFile(file, "text/html");
@@ -2079,7 +2116,8 @@ bool WebPortal::isAuthorizedRoute(const String &uri)
   // Public routes that don't require authentication
   if (uri == "/" || uri == "/index.html" ||
       uri.startsWith("/generate_204") || uri.startsWith("/fwlink") ||
-      uri == "/unauthorized.html" || uri.startsWith("/api/auth/"))
+      uri == "/unauthorized.html" || uri == "/restricted.html" ||
+      uri.startsWith("/api/auth/"))
   {
     return true;
   }

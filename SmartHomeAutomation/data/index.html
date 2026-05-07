@@ -967,6 +967,65 @@
       font-weight: 800;
     }
 
+    /* NEW: rename icon — admin-only pencil */
+    .rename-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      min-height: unset;
+      flex: 0 0 auto;
+      transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+    }
+    .rename-btn:hover:not(:disabled) {
+      background: var(--accent-soft);
+      border-color: var(--accent-ring);
+      color: var(--accent);
+      transform: none;
+      box-shadow: none;
+    }
+    .rename-btn svg {
+      width: 13px;
+      height: 13px;
+      stroke: currentColor;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      pointer-events: none;
+    }
+    /* NEW: Inline rename input */
+    .rename-inline { display: inline-flex; align-items: center; gap: 6px; }
+    .rename-inline input {
+      width: 130px;
+      height: 30px;
+      min-height: unset;
+      font-size: 0.92rem;
+      font-weight: 800;
+      padding: 3px 10px;
+      border-radius: 8px;
+      border: 1.5px solid var(--accent);
+      background: var(--surface);
+      color: var(--text);
+    }
+    .rename-inline input:focus { outline: none; box-shadow: 0 0 0 3px var(--accent-ring); }
+    .rename-save-btn, .rename-cancel-btn {
+      height: 30px;
+      min-height: unset;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      padding: 0 10px;
+    }
+    .rename-save-btn { background: var(--accent); color: #fff; border: none; }
+    .rename-cancel-btn { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); }
+
     .state-badge {
       display: inline-flex;
       align-items: center;
@@ -2301,6 +2360,13 @@
                 <span>Can manage other users</span>
               </label>
 
+              <!-- RESTRICTED MODE: when checked the new user is limited to the
+                   relay+timer page and cannot reach the full dashboard. -->
+              <label class="toggle">
+                <input type="checkbox" id="newUserIsRestricted">
+                <span>Restricted mode (relay &amp; timer only)</span>
+              </label>
+
               <div class="actions">
                 <!-- FIX: explicit type="button" prevents any future form
                      wrapper from turning this into an implicit submit. -->
@@ -2734,6 +2800,9 @@
     ]);
     const THEME_KEY = "esp32_ui_theme";
     const LANG_KEY = "Tarshid_ui_lang";
+    // NEW: shared name overrides synced via localStorage across pages
+    const RELAY_NAMES_KEY = "tarshid_relay_names";
+    const PIR_NAMES_KEY   = "tarshid_pir_names";
 
     const relayContainer = document.getElementById("relayContainer");
     const powerList = document.getElementById("powerList");
@@ -3172,12 +3241,22 @@
       const mappedKey = MESSAGE_KEY_MAP[String(message || "")];
       return mappedKey ? t(mappedKey) : message;
     }
-    function translateRelayName(name) {
+    // UPDATED: check localStorage custom name first, then fall back to i18n default
+    function translateRelayName(name, index) {
+      try {
+        const stored = JSON.parse(localStorage.getItem(RELAY_NAMES_KEY) || "{}");
+        if (index !== undefined && stored[index]) return stored[index];
+      } catch {}
       if (name === "Relay A") return t("relay_a");
       if (name === "Relay B") return t("relay_b");
       return name;
     }
-    function translatePirName(name) {
+    // UPDATED: check localStorage custom name first, then fall back to default
+    function translatePirName(name, index) {
+      try {
+        const stored = JSON.parse(localStorage.getItem(PIR_NAMES_KEY) || "{}");
+        if (index !== undefined && stored[index]) return stored[index];
+      } catch {}
       const map = {
         "PIR A": currentLanguage === "ar" ? "مستشعر PIR A" : "PIR A",
         "PIR B": currentLanguage === "ar" ? "مستشعر PIR B" : "PIR B",
@@ -3469,11 +3548,101 @@
       advancedDetailsOpen = false;
     }
 
+    /* OPTIMIZED: Rename helpers — admin-only, event-driven, no polling
+       Architecture matches existing relay/timer pattern:
+         1. Instant UI update (optimistic, zero latency)
+         2. Write localStorage once (persistent, no repeated fetches)
+         3. Broadcast via EXISTING open WebSocket — NO new connection
+            → other connected clients receive name_update & re-render
+         4. storage event = same-browser fallback when WS is offline
+       NO-POLLING: zero fetch loops, zero timers, zero reconnections */
+
+    // OPTIMIZED: shared helper — writes name, broadcasts via existing WS, re-renders
+    function _applyNameUpdate(storeKey, index, val) {
+      // SYNC SAFE: write localStorage synchronously first — instant, zero network dependency.
+      // translateRelayName/translatePirName both read from here on every render.
+      try {
+        const stored = JSON.parse(localStorage.getItem(storeKey) || "{}");
+        stored[index] = val;
+        localStorage.setItem(storeKey, JSON.stringify(stored));  // NO-POLLING: one write
+      } catch {}
+      // SYNC SAFE / PREVENT OVERWRITE: broadcast via the EXISTING open socket directly.
+      // We intentionally bypass sendWs() here because sendWs() shows a "WebSocket offline"
+      // toast when WS is down — confusing when rename has already succeeded locally.
+      // This send is best-effort: localStorage is already updated so the UI is already
+      // correct regardless of whether this packet reaches the server.
+      if (socketReady && socket && socket.readyState === WebSocket.OPEN) {
+        const entity = storeKey === RELAY_NAMES_KEY ? "relay" : "pir";
+        try { socket.send(JSON.stringify({ type: "name_update", entity, index, name: val })); } catch {}
+      }
+    }
+
+    function _buildRenameWidget(current, onSave, onCancel) {
+      const wrapper = document.createElement("span");
+      wrapper.className = "rename-inline";
+      wrapper.innerHTML = `<input type="text" maxlength="32" value="${escapeHtml(current)}" /><button class="rename-save-btn" type="button">Save</button><button class="rename-cancel-btn" type="button">✕</button>`;
+      wrapper.querySelector(".rename-save-btn").addEventListener("click", () => { const v = wrapper.querySelector("input").value.trim(); if (v) onSave(v); });
+      wrapper.querySelector(".rename-cancel-btn").addEventListener("click", onCancel);
+      wrapper.querySelector("input").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") wrapper.querySelector(".rename-save-btn").click();
+        if (e.key === "Escape") onCancel();
+      });
+      return wrapper;
+    }
+
+    window.startRenameRelay = function(index, btn) {
+      const nameDiv = btn.previousElementSibling;
+      if (!nameDiv) return;
+      const wrapper = _buildRenameWidget(nameDiv.textContent,
+        (val) => {
+          _applyNameUpdate(RELAY_NAMES_KEY, index, val);  // OPTIMIZED
+          wrapper.remove(); nameDiv.style.display = ""; btn.style.display = "";
+          renderRelays(); renderPower(); renderStats();
+        },
+        () => { wrapper.remove(); nameDiv.style.display = ""; btn.style.display = ""; }
+      );
+      nameDiv.style.display = "none";
+      btn.style.display = "none";
+      btn.parentNode.insertBefore(wrapper, btn.nextSibling);
+      wrapper.querySelector("input").focus();
+    };
+
+    window.startRenamePir = function(index, btn) {
+      const nameDiv = btn.previousElementSibling;
+      if (!nameDiv) return;
+      const wrapper = _buildRenameWidget(nameDiv.textContent,
+        (val) => {
+          _applyNameUpdate(PIR_NAMES_KEY, index, val);  // OPTIMIZED
+          wrapper.remove(); nameDiv.style.display = ""; btn.style.display = "";
+          renderSensorIndicators(); renderPirMapping();
+        },
+        () => { wrapper.remove(); nameDiv.style.display = ""; btn.style.display = ""; }
+      );
+      nameDiv.style.display = "none";
+      btn.style.display = "none";
+      btn.parentNode.insertBefore(wrapper, btn.nextSibling);
+      wrapper.querySelector("input").focus();
+    };
+
+    // EVENT-DRIVEN: same-browser cross-tab fallback (fires when WS is offline)
+    // NO-POLLING: triggered only by an actual localStorage write, never on a timer
+    window.addEventListener("storage", (e) => {
+      if (e.key === RELAY_NAMES_KEY || e.key === PIR_NAMES_KEY) {
+        if (state) renderState();
+      }
+    });
+
     /* ==========================================
        Renderers
        ========================================== */
     function renderRelays() {
       if (!state || !Array.isArray(state.relays)) return;
+      // FIXED RACE CONDITION: setInterval (1 s) and state_snapshot both call renderRelays().
+      // If the user has an inline rename widget open, rebuilding innerHTML destroys the
+      // input element and reverts the visible name to the pre-save state.
+      // Guard: return early and let the widget finish its own lifecycle.
+      // The widget's Save/Cancel handlers call renderRelays() themselves once done.
+      if (relayContainer && relayContainer.querySelector('.rename-inline')) return;
       const nightLock = isNightLockActive();
       relayContainer.innerHTML = state.relays.map((relay) => {
         const relayGlyph = relay.index === 0 ? "A" : relay.index === 1 ? "B" : String(relay.index + 1);
@@ -3489,7 +3658,8 @@
             <div class="relay-glyph">${escapeHtml(relayGlyph)}</div>
             <div>
               <div class="relay-name-row">
-                <div class="relay-name">${escapeHtml(translateRelayName(relay.name))}</div>
+                <div class="relay-name">${escapeHtml(translateRelayName(relay.name, relay.index))}</div>
+                ${currentUserIsAdmin ? `<button class="rename-btn" title="Rename relay" onclick="startRenameRelay(${relay.index}, this)" type="button"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>` : ""}
                 ${relayBadge(relay.state)}
               </div>
               <div class="relay-meta">${escapeHtml(timerRemainingText(relay))}</div>
@@ -3577,7 +3747,7 @@
       const nightLocked = isNightLockActive();
       pirMappingList.innerHTML = state.pirs.map((pir) => `
       <div class="mapping-row">
-        <div class="mapping-label">${escapeHtml(translatePirName(pir.name))}</div>
+        <div class="mapping-label">${escapeHtml(translatePirName(pir.name, pir.index))}</div>
         <label class="mapping-check">
           <input id="pir${pir.index}RelayA" type="checkbox" ${pir.relayA ? "checked" : ""} ${nightLocked ? "disabled" : ""}>
           <span>${escapeHtml(t("relay_a"))}</span>
@@ -3597,13 +3767,16 @@
     }
     function renderSensorIndicators() {
       if (!state || !Array.isArray(state.pirs)) return;
+      // FIXED RACE CONDITION: same guard as renderRelays — protect active PIR rename widget
+      if (sensorIndicatorList && sensorIndicatorList.querySelector('.rename-inline')) return;
       sensorIndicatorList.innerHTML = state.pirs.map((pir) => {
         const active = isSensorIndicatorActive(pir);
         return `
         <div class="sensor-card ${active ? "active" : ""}">
           <div class="sensor-card-head">
             <div class="sensor-icon"><svg class="icon"><use href="#i-radar"/></svg></div>
-            <div class="sensor-name">${escapeHtml(translatePirName(pir.name))}</div>
+            <div class="sensor-name">${escapeHtml(translatePirName(pir.name, pir.index))}</div>
+            ${currentUserIsAdmin ? `<button class="rename-btn" title="Rename sensor" onclick="startRenamePir(${pir.index}, this)" type="button"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>` : ""}
           </div>
           <span class="sensor-state">${escapeHtml(active ? t("active") : t("idle"))}</span>
           <div class="sensor-meta">${escapeHtml(t("last_trigger", { value: pir.lastTrigger ? formatTimestamp(pir.lastTrigger) : "--" }))}</div>
@@ -3639,7 +3812,7 @@
         return `
         <li class="power-item">
           <div class="power-item-head">
-            <span class="power-item-name">${escapeHtml(translateRelayName(relay.name))}</span>
+            <span class="power-item-name">${escapeHtml(translateRelayName(relay.name, relay.index))}</span>
             <span class="power-value">${wh.toFixed(3)} Wh</span>
           </div>
           <div class="power-meter"><span class="power-meter__fill" style="width:${fillPercent}%"></span></div>
@@ -3672,7 +3845,7 @@
       statsList.innerHTML = state.relays.map((relay) => `
       <li class="power-item">
         <div class="power-item-head">
-          <span class="power-item-name">${escapeHtml(translateRelayName(relay.name))}</span>
+          <span class="power-item-name">${escapeHtml(translateRelayName(relay.name, relay.index))}</span>
           <span class="power-value">${Number(relay.totalTimerMinutes || 0)} m</span>
         </div>
         <div class="power-meter"><span class="power-meter__fill" style="width:${Number(relay.totalTimerMinutes || 0) <= 0 ? 0 : Math.max(10, Math.min(100, (Number(relay.totalTimerMinutes || 0) / maxMinutes) * 100))}%"></span></div>
@@ -3901,6 +4074,18 @@
         return;
       }
       if (msg.type === "time_request") { syncDeviceTime(); return; }
+      // EVENT-DRIVEN: receive rename broadcast from another connected client
+      // NO-POLLING: triggered only when the event arrives, never on a timer
+      if (msg.type === "name_update" && msg.name && msg.entity) {
+        try {
+          const key = msg.entity === "pir" ? PIR_NAMES_KEY : RELAY_NAMES_KEY;
+          const stored = JSON.parse(localStorage.getItem(key) || "{}");
+          stored[msg.index] = msg.name;
+          localStorage.setItem(key, JSON.stringify(stored));
+        } catch {}
+        if (state) renderState();
+        return;
+      }
       if (LOG_TYPES.has(msg.type)) {
         if (msg.event === "pir.motion" || msg.event === "pir.idle") {
           const sensorIndex = Number.isInteger(msg.relay) ? msg.relay : Number(msg.channel);
@@ -4029,6 +4214,12 @@
         // collapses to Case 1 (no admin UI), which is the safe default.
         currentUserIsAdmin = !!data.isAdmin;
         currentUserCanManage = !!data.canManageUsers;
+        // RESTRICTED MODE: restricted users only have access to the relay+timer
+        // page; send them there instead of letting the full dashboard load.
+        if (data.isRestricted) {
+          window.location.replace("/restricted.html");
+          return false;
+        }
         applyRoleVisibility(currentUserIsAdmin, currentUserCanManage);
         return true;
       } catch {
@@ -4079,6 +4270,7 @@
         <div class="user-perms">
           ${user.isAdmin ? '<span class="perm-badge">Admin</span>' : ''}
           ${user.canManageUsers ? '<span class="perm-badge">Can Manage</span>' : ''}
+          ${user.isRestricted ? '<span class="perm-badge" style="background:var(--warning,#b45309);color:#fff;">Restricted</span>' : ''}
         </div>
         <button class="danger" type="button" onclick="removeUser('${user.mac}')"
                 ${user.mac === (currentUserMac || "").toUpperCase() ? 'disabled' : ''}
@@ -4177,7 +4369,9 @@
             // Admins implicitly have manage rights, so OR them together to
             // avoid creating an "admin who cannot manage" inconsistency.
             isAdmin,
-            canManageUsers: canManage || isAdmin
+            canManageUsers: canManage || isAdmin,
+            // RESTRICTED MODE: forward the restricted flag to the backend.
+            isRestricted: document.getElementById("newUserIsRestricted").checked
           })
         });
         console.log('[AddUser] Response status:', response.status);

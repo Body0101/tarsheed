@@ -927,6 +927,9 @@ bool StorageLayer::loadUserAccounts(AccessControlRuntime *access)
         user.passwordHash[MAX_PASSWORD_LENGTH - 1] = '\0';
         user.isAdmin = userObj["isAdmin"] | false;
         user.canManageUsers = userObj["canManageUsers"] | false;
+        // RESTRICTED MODE: defaults to false so existing accounts without this
+        // field are treated as normal (unrestricted) users on firmware upgrade.
+        user.restricted = userObj["restricted"] | false;
         user.createdAt = userObj["createdAt"] | 0;
         user.lastAccess = userObj["lastAccess"] | 0;
 
@@ -982,6 +985,7 @@ bool StorageLayer::saveUserAccounts(const AccessControlRuntime *access)
     userObj["passwordHash"] = user.passwordHash;
     userObj["isAdmin"] = user.isAdmin;
     userObj["canManageUsers"] = user.canManageUsers;
+    userObj["restricted"] = user.restricted;
     userObj["createdAt"] = user.createdAt;
     userObj["lastAccess"] = user.lastAccess;
   }
@@ -1079,10 +1083,11 @@ bool StorageLayer::addUserAccount(const UserAccount &user)
   }
   else
   {
-    Serial.printf("[Storage] addUserAccount ok: mac=%s name=%s admin=%d manage=%d (now %u/%u users)\n",
+    Serial.printf("[Storage] addUserAccount ok: mac=%s name=%s admin=%d manage=%d restricted=%d (now %u/%u users)\n",
                   candidate.macAddress, candidate.displayName,
                   candidate.isAdmin ? 1 : 0,
                   candidate.canManageUsers ? 1 : 0,
+                  candidate.restricted ? 1 : 0,
                   static_cast<unsigned>(access.userCount),
                   static_cast<unsigned>(MAX_USER_ACCOUNTS));
   }
