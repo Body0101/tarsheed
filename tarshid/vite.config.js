@@ -31,7 +31,7 @@ export default defineConfig({
       },
     }),
   ],
-  base: "/tarshid/",
+  base: "/Playground/",
   build: {
     outDir: "dist",
     sourcemap: true,
