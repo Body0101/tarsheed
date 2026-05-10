@@ -40,7 +40,7 @@ function HomePage() {
       <section id="next-steps">
         <div id="docs">
           <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/public/icons.svg"></use>
+            <use href={`${import.meta.env.BASE_URL}icons.svg#documentation-icon`}></use>
           </svg>
           <h2>Documentation</h2>
           <p>Your questions, answered</p>
