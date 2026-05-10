@@ -1,12 +1,17 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { useState, useEffect } from "react";
+import reactLogo from "./assets/react.svg";
+import viteLogo from "./assets/vite.svg";
+import heroImg from "./assets/hero.png";
+import { handleGitHubPagesRedirect } from "./utils/redirects";
+import "./App.css";
 
-function App() {
-  const [count, setCount] = useState(0)
-
+// Home page (original content from the first code)
+function HomePage() {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    handleGitHubPagesRedirect();
+  }, []);
   return (
     <>
       <section id="center">
@@ -116,7 +121,43 @@ function App() {
       <div className="ticks"></div>
       <section id="spacer"></section>
     </>
-  )
+  );
 }
 
-export default App
+// Placeholder pages (you can develop them later)
+function LoginPage() {
+  return (
+    <div style={{ padding: "2rem" }}>
+      <h1>Login Page</h1>
+      <p>Login form will go here</p>
+    </div>
+  );
+}
+
+function DashboardPage() {
+  return (
+    <div style={{ padding: "2rem" }}>
+      <h1>Dashboard Page</h1>
+      <p>User dashboard after login</p>
+    </div>
+  );
+}
+
+// Main App component with Router
+const basename = import.meta.env.BASE_URL || "/";
+
+export function App() {
+  return (
+    <Router basename={basename}>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
+        {/* Add more routes here */}
+      </Routes>
+    </Router>
+  );
+}
+
+// Default export for compatibility with Vite / create-react-app
+export default App;

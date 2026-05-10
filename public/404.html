@@ -1,18 +1,31 @@
 <!DOCTYPE html>
-<html lang="ar">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>404 - الصفحة غير موجودة</title>
+    <title>404 - Page Not Found</title>
     <style>
-        body, html {
+        :root {
+            --bg: #ffffff;
+            --text: #1a1a1a;
+        }
+
+        * {
             margin: 0;
             padding: 0;
+            box-sizing: border-box;
+        }
+
+        body,
+        html {
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background-color: white;
-            font-family: 'Arial Black', sans-serif;
+            background-color: var(--bg);
+            font-family: 'Arial Black', 'Segoe UI Black', 'Tahoma', sans-serif;
+            cursor: default;
+            -webkit-user-select: none;
+            user-select: none;
         }
 
         #container {
@@ -24,186 +37,568 @@
             align-items: center;
         }
 
-        /* نص 404 */
         #text-404 {
-            font-size: 150px;
-            font-weight: bold;
-            color: #333;
+            font-size: clamp(100px, 20vw, 200px);
+            font-weight: 900;
+            color: #1a1a1a;
             position: absolute;
             z-index: 1;
-            transition: opacity 0.1s;
+            letter-spacing: 8px;
+            transition: color 0.3s, text-shadow 0.3s;
+            text-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
         }
 
-        /* الصاروخ */
+        #text-404.burning {
+            color: #e63900;
+            text-shadow:
+                0 0 30px #ff4d00,
+                0 0 60px #ff6a00,
+                0 0 100px #ff8800,
+                0 0 150px #ffaa00;
+            animation: flicker 0.08s infinite alternate;
+        }
+
+        @keyframes flicker {
+            0% {
+                text-shadow: 0 0 30px #ff4d00, 0 0 60px #ff6a00, 0 0 100px #ff8800;
+            }
+            25% {
+                text-shadow: 0 0 50px #ff6a00, 0 0 90px #ff8800, 0 0 140px #ffaa00;
+            }
+            50% {
+                text-shadow: 0 0 20px #ff3d00, 0 0 45px #ff5500, 0 0 80px #ff7700;
+            }
+            75% {
+                text-shadow: 0 0 55px #ff5d00, 0 0 100px #ff8c00, 0 0 160px #ffb300;
+            }
+            100% {
+                text-shadow: 0 0 35px #ff4800, 0 0 70px #ff7000, 0 0 110px #ff9000;
+            }
+        }
+
         #rocket {
             position: absolute;
-            font-size: 50px;
-            top: -100px;
-            right: -100px;
+            font-size: 60px;
+            top: -120px;
+            right: -120px;
             z-index: 10;
-            transition: none;
             pointer-events: none;
+            filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.3));
+            transition: none;
         }
 
-        /* تأثير الانفجار البسيط */
-        .explosion {
+        .rocket-smoke {
             position: absolute;
-            width: 10px;
-            height: 10px;
-            background: orange;
+            width: 14px;
+            height: 14px;
+            background: rgba(180, 180, 180, 0.6);
             border-radius: 50%;
-            opacity: 0;
-            z-index: 5;
+            pointer-events: none;
+            z-index: 9;
+            animation: smokeFade 0.7s ease-out forwards;
         }
 
-        canvas {
+        @keyframes smokeFade {
+            0% {
+                transform: scale(0.3);
+                opacity: 0.8;
+            }
+            100% {
+                transform: scale(2.5);
+                opacity: 0;
+            }
+        }
+
+        #flash {
+            position: absolute;
+            width: 400px;
+            height: 400px;
+            border-radius: 50%;
+            background: radial-gradient(circle,
+                    rgba(255, 200, 50, 1) 0%,
+                    rgba(255, 120, 20, 0.8) 20%,
+                    rgba(255, 60, 10, 0.4) 40%,
+                    rgba(255, 30, 0, 0.1) 60%,
+                    rgba(255, 100, 30, 0) 100%);
+            pointer-events: none;
+            z-index: 3;
+            opacity: 0;
+            transform: scale(0.1);
+            transition: none;
+        }
+
+        .spark {
+            position: absolute;
+            width: 6px;
+            height: 6px;
+            background: #ff6a00;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 8;
+            animation: sparkFly 1.2s ease-out forwards;
+        }
+
+        @keyframes sparkFly {
+            0% {
+                transform: translate(0, 0) scale(1);
+                opacity: 1;
+            }
+            100% {
+                transform: translate(var(--sx), var(--sy)) scale(0);
+                opacity: 0;
+            }
+        }
+
+        #ashCanvas {
             position: absolute;
             top: 0;
             left: 0;
             pointer-events: none;
-            z-index: 2;
+            z-index: 4;
         }
 
         .message {
             position: absolute;
-            bottom: 20%;
-            font-size: 20px;
-            color: #888;
+            bottom: 18%;
+            font-size: clamp(16px, 2.5vw, 22px);
+            color: #777;
             opacity: 0;
-            transition: opacity 2s;
+            transition: opacity 1.8s ease;
             text-align: center;
             width: 100%;
+            z-index: 0;
+            letter-spacing: 2px;
+            font-family: 'Tahoma', 'Segoe UI', sans-serif;
+            font-weight: 400;
+        }
+
+        .message.visible {
+            opacity: 1;
+        }
+
+        .fire-particle {
+            position: absolute;
+            pointer-events: none;
+            z-index: 5;
+            border-radius: 50%;
+            animation: fireRise 1s ease-out forwards;
+        }
+
+        @keyframes fireRise {
+            0% {
+                transform: translateY(0) scale(1);
+                opacity: 1;
+            }
+            60% {
+                opacity: 0.7;
+            }
+            100% {
+                transform: translateY(-180px) scale(0.1);
+                opacity: 0;
+            }
+        }
+
+        #bgGlow {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            background: radial-gradient(ellipse at center,
+                    rgba(255, 140, 30, 0.25) 0%,
+                    rgba(255, 100, 20, 0.08) 30%,
+                    rgba(255, 60, 10, 0) 70%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .burn-mark {
+            position: absolute;
+            pointer-events: none;
+            z-index: 2;
+            background: rgba(40, 20, 5, 0.7);
+            border-radius: 3px;
+            animation: burnAppear 0.5s ease-out forwards;
+        }
+
+        @keyframes burnAppear {
+            0% {
+                transform: scale(0);
+                opacity: 0;
+            }
+            100% {
+                transform: scale(1);
+                opacity: 0.7;
+            }
         }
     </style>
 </head>
 <body>
 
     <div id="container">
+        <div id="bgGlow"></div>
         <div id="text-404">404</div>
         <div id="rocket">🚀</div>
-        <div class="message" id="msg">عذراً، هذه الصفحة احترقت وتلاشت!</div>
+        <div id="flash"></div>
+        <div class="message" id="msg">Sorry, this page has burned up and vanished into thin air!</div>
         <canvas id="ashCanvas"></canvas>
     </div>
 
     <script>
-        const rocket = document.getElementById('rocket');
-        const text = document.getElementById('text-404');
-        const canvas = document.getElementById('ashCanvas');
-        const ctx = canvas.getContext('2d');
-        const msg = document.getElementById('msg');
+        (function() {
+            const rocket = document.getElementById('rocket');
+            const text404 = document.getElementById('text-404');
+            const canvas = document.getElementById('ashCanvas');
+            const ctx = canvas.getContext('2d');
+            const msg = document.getElementById('msg');
+            const flash = document.getElementById('flash');
+            const bgGlow = document.getElementById('bgGlow');
+            const container = document.getElementById('container');
 
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+            let W, H;
+            let particles = [];
+            let fireParticles = [];
+            let sparksData = [];
+            let animationId;
+            let windActive = false;
+            let windStrength = 0;
+            let windTarget = 0;
+            let animationPhase = 'idle';
+            let explosionTimer = 0;
+            let smokeTrailInterval = null;
 
-        let particles = [];
-        let animationId;
-        let isBlown = false;
-
-        // إعدادات الصاروخ
-        const startX = window.innerWidth + 100;
-        const startY = -100;
-        const targetX = window.innerWidth / 2;
-        const targetY = window.innerHeight / 2;
-
-        function moveRocket() {
-            let currentX = startX;
-            let currentY = startY;
-            
-            const interval = setInterval(() => {
-                currentX -= (currentX - targetX) * 0.1;
-                currentY += (targetY - currentY) * 0.1;
-                
-                rocket.style.left = currentX + 'px';
-                rocket.style.top = currentY + 'px';
-                rocket.style.transform = `rotate(${-Math.atan2(targetY - startY, targetX - startX) * 180 / Math.PI}deg)`;
-
-                // عند وصول الصاروخ للنص
-                if (Math.abs(currentX - targetX) < 20 && Math.abs(currentY - targetY) < 20) {
-                    clearInterval(interval);
-                    explode();
-                }
-            }, 20);
-        }
-
-        function explode() {
-            rocket.style.display = 'none';
-            text.style.opacity = '0'; // إخفاء النص الأصلي
-            
-            // تحويل النص إلى جزيئات (رماد)
-            createAsh();
-            animateAsh();
-            
-            // إظهار رسالة بعد فترة
-            setTimeout(() => {
-                msg.style.opacity = '1';
-            }, 2000);
-
-            // بدء الرياح بعد ثانية من الانفجار
-            setTimeout(() => {
-                isBlown = true;
-            }, 1500);
-        }
-
-        function createAsh() {
-            // سنقوم بإنشاء نقاط في شكل تقريبي للنص 404
-            const fontSize = 150;
-            const centerX = window.innerWidth / 2;
-            const centerY = window.innerHeight / 2;
-
-            // توليد نقاط عشوائية في منطقة النص لمحاكاة الرماد
-            for (let i = 0; i < 800; i++) {
-                particles.push({
-                    x: centerX + (Math.random() - 0.5) * 300,
-                    y: centerY + (Math.random() - 0.5) * 150,
-                    size: Math.random() * 3 + 1,
-                    speedX: (Math.random() - 0.5) * 2,
-                    speedY: (Math.random() - 0.5) * 2,
-                    color: `rgba(${100 + Math.random()*50}, ${100 + Math.random()*50}, ${100 + Math.random()*50}, ${Math.random()})`,
-                    life: Math.random() * 100 + 50
-                });
+            function resize() {
+                W = canvas.width = window.innerWidth;
+                H = canvas.height = window.innerHeight;
             }
-        }
+            resize();
+            window.addEventListener('resize', resize);
 
-        function animateAsh() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            function getTextCenter() {
+                const rect = text404.getBoundingClientRect();
+                return {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                    w: rect.width,
+                    h: rect.height
+                };
+            }
 
-            particles.forEach((p, index) => {
-                ctx.fillStyle = p.color;
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-                ctx.fill();
+            function launchRocket() {
+                animationPhase = 'flying';
+                const textCenter = getTextCenter();
+                const targetX = textCenter.x;
+                const targetY = textCenter.y - 30;
 
-                // حركة الجزيئات
-                p.x += p.speedX;
-                p.y += p.speedY;
+                const startX = W + 150;
+                const startY = -150;
+                let currentX = startX;
+                let currentY = startY;
 
-                // تأثير الرياح (سحب الرماد لليمين)
-                if (isBlown) {
-                    p.x += 5; // سرعة الرياح
-                    p.y += (Math.random() - 0.5) * 2; // تذبذب الهواء
+                rocket.style.left = startX + 'px';
+                rocket.style.top = startY + 'px';
+                rocket.style.display = 'block';
+                rocket.style.transform = 'rotate(-35deg)';
+
+                const controlX = targetX + 350;
+                const controlY = targetY - 400;
+                let t = 0;
+                const duration = 1800;
+                const startTime = performance.now();
+
+                smokeTrailInterval = setInterval(() => {
+                    createSmokeParticle(currentX, currentY);
+                }, 25);
+
+                function flyStep(now) {
+                    const elapsed = now - startTime;
+                    t = Math.min(elapsed / duration, 1);
+                    const ease = t < 0.6 ?
+                        0.5 * (t / 0.6) * (t / 0.6) :
+                        1 - Math.pow(1 - (t - 0.6) / 0.4, 3) * 0.5;
+
+                    const u = 1 - ease;
+                    currentX = u * u * startX + 2 * u * ease * controlX + ease * ease * targetX;
+                    currentY = u * u * startY + 2 * u * ease * controlY + ease * ease * targetY;
+
+                    const dx = targetX - currentX;
+                    const dy = targetY - currentY;
+                    const angle = Math.atan2(-dy, dx) * 180 / Math.PI - 45;
+                    rocket.style.left = currentX + 'px';
+                    rocket.style.top = currentY + 'px';
+                    rocket.style.transform = `rotate(${angle}deg)`;
+
+                    if (t >= 1) {
+                        clearInterval(smokeTrailInterval);
+                        triggerExplosion(currentX, currentY);
+                        return;
+                    }
+                    requestAnimationFrame(flyStep);
+                }
+                requestAnimationFrame(flyStep);
+            }
+
+            function createSmokeParticle(x, y) {
+                const smoke = document.createElement('div');
+                smoke.className = 'rocket-smoke';
+                smoke.style.left = (x - 20 + Math.random() * 40) + 'px';
+                smoke.style.top = (y + 15 + Math.random() * 30) + 'px';
+                smoke.style.width = (10 + Math.random() * 16) + 'px';
+                smoke.style.height = smoke.style.width;
+                smoke.style.background = `rgba(${160 + Math.random()*40}, ${155 + Math.random()*35}, ${150 + Math.random()*30}, ${0.4 + Math.random()*0.4})`;
+                container.appendChild(smoke);
+                setTimeout(() => smoke.remove(), 700);
+            }
+
+            function triggerExplosion(cx, cy) {
+                animationPhase = 'exploding';
+                rocket.style.display = 'none';
+                clearInterval(smokeTrailInterval);
+
+                flash.style.left = (cx - 200) + 'px';
+                flash.style.top = (cy - 200) + 'px';
+                flash.style.opacity = '1';
+                flash.style.transform = 'scale(0.1)';
+                flash.style.transition = 'none';
+
+                requestAnimationFrame(() => {
+                    flash.style.transition = 'transform 0.25s cubic-bezier(0,1,0.3,1), opacity 0.6s ease-out';
+                    flash.style.transform = 'scale(2.5)';
+                    flash.style.opacity = '0';
+                });
+
+                bgGlow.style.opacity = '1';
+                setTimeout(() => {
+                    bgGlow.style.transition = 'opacity 2s ease';
+                    bgGlow.style.opacity = '0';
+                }, 400);
+
+                for (let i = 0; i < 50; i++) {
+                    const spark = document.createElement('div');
+                    spark.className = 'spark';
+                    spark.style.left = cx + 'px';
+                    spark.style.top = cy + 'px';
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist = 80 + Math.random() * 220;
+                    spark.style.setProperty('--sx', Math.cos(angle) * dist + 'px');
+                    spark.style.setProperty('--sy', Math.sin(angle) * dist + 'px');
+                    spark.style.width = (3 + Math.random() * 8) + 'px';
+                    spark.style.height = spark.style.width;
+                    spark.style.background = ['#ff4d00', '#ff8800', '#ffcc00', '#ff3300', '#fff44f'][Math.floor(Math.random() * 5)];
+                    spark.style.animationDuration = (0.6 + Math.random() * 1.4) + 's';
+                    container.appendChild(spark);
+                    setTimeout(() => spark.remove(), 1500);
                 }
 
-                // تلاشي الرماد
-                p.life -= 0.5;
-                if (p.life <= 0) {
-                    particles.splice(index, 1);
+                for (let i = 0; i < 35; i++) {
+                    const fp = document.createElement('div');
+                    fp.className = 'fire-particle';
+                    fp.style.left = (cx + (Math.random() - 0.5) * 160) + 'px';
+                    fp.style.top = (cy + (Math.random() - 0.5) * 80) + 'px';
+                    fp.style.width = (4 + Math.random() * 14) + 'px';
+                    fp.style.height = fp.style.width;
+                    fp.style.background = ['#ff5e00', '#ff8c00', '#ffb700', '#ff3300', '#ffcc33'][Math.floor(Math.random() * 5)];
+                    fp.style.animationDuration = (0.7 + Math.random() * 1.3) + 's';
+                    fp.style.animationDelay = Math.random() * 0.4 + 's';
+                    container.appendChild(fp);
+                    setTimeout(() => fp.remove(), 2000);
                 }
+
+                setTimeout(() => {
+                    text404.classList.add('burning');
+                }, 150);
+
+                setTimeout(() => {
+                    startBurning();
+                }, 400);
+
+                setTimeout(() => {
+                    startWind();
+                }, 2500);
+            }
+
+            function startBurning() {
+                animationPhase = 'burning';
+                const textCenter = getTextCenter();
+
+                const count = 900;
+                for (let i = 0; i < count; i++) {
+                    const rx = textCenter.x - textCenter.w / 2 + Math.random() * textCenter.w;
+                    const ry = textCenter.y - textCenter.h / 2 + Math.random() * textCenter.h;
+                    particles.push({
+                        x: rx,
+                        y: ry,
+                        size: 0.5 + Math.random() * 3.5,
+                        speedX: (Math.random() - 0.5) * 1.5,
+                        speedY: -Math.random() * 2 - 0.3,
+                        color: {
+                            r: 35 + Math.random() * 60,
+                            g: 25 + Math.random() * 40,
+                            b: 15 + Math.random() * 25
+                        },
+                        alpha: 0.5 + Math.random() * 0.5,
+                        life: 180 + Math.random() * 300,
+                        maxLife: 180 + Math.random() * 300,
+                        rotation: Math.random() * Math.PI * 2,
+                        rotSpeed: (Math.random() - 0.5) * 0.05,
+                        shape: Math.random() < 0.7 ? 'circle' : 'flake'
+                    });
+                }
+
+                text404.style.transition = 'opacity 0.8s ease';
+                text404.style.opacity = '0';
+                text404.classList.remove('burning');
+
+                for (let i = 0; i < 12; i++) {
+                    const mark = document.createElement('div');
+                    mark.className = 'burn-mark';
+                    mark.style.left = (textCenter.x - textCenter.w / 2 + Math.random() * textCenter.w) + 'px';
+                    mark.style.top = (textCenter.y - textCenter.h / 2 + Math.random() * textCenter.h) + 'px';
+                    mark.style.width = (8 + Math.random() * 30) + 'px';
+                    mark.style.height = (3 + Math.random() * 18) + 'px';
+                    mark.style.animationDelay = Math.random() * 0.6 + 's';
+                    container.appendChild(mark);
+                    setTimeout(() => mark.remove(), 1500);
+                }
+
+                setTimeout(() => {
+                    msg.classList.add('visible');
+                }, 1800);
+
+                if (!animationId) {
+                    animateAsh();
+                }
+            }
+
+            function startWind() {
+                animationPhase = 'wind';
+                windTarget = 8;
+                const rampUp = setInterval(() => {
+                    windStrength += 0.5;
+                    if (windStrength >= windTarget) {
+                        windStrength = windTarget;
+                        clearInterval(rampUp);
+                        setTimeout(() => {
+                            const rampDown = setInterval(() => {
+                                windStrength -= 0.3;
+                                if (windStrength <= 0.5) {
+                                    windStrength = 0.5;
+                                    clearInterval(rampDown);
+                                    animationPhase = 'done';
+                                }
+                            }, 100);
+                        }, 3000);
+                    }
+                }, 120);
+            }
+
+            function animateAsh() {
+                ctx.clearRect(0, 0, W, H);
+
+                particles.forEach((p, index) => {
+                    p.x += p.speedX;
+                    p.y += p.speedY;
+
+                    if (animationPhase === 'wind' || animationPhase === 'done') {
+                        p.x += windStrength * (0.7 + Math.random() * 0.6);
+                        p.y += (Math.random() - 0.45) * windStrength * 0.8;
+                        p.speedX += windStrength * 0.04;
+                        p.speedY += (Math.random() - 0.5) * windStrength * 0.06;
+                    }
+
+                    if (animationPhase !== 'wind' && animationPhase !== 'done') {
+                        p.speedY += 0.015;
+                    } else {
+                        p.speedY += 0.003;
+                    }
+
+                    p.speedX *= 0.998;
+                    p.speedY *= 0.998;
+                    p.rotation += p.rotSpeed;
+
+                    p.life--;
+                    const lifeRatio = Math.max(0, p.life / p.maxLife);
+                    p.alpha = lifeRatio * (0.5 + Math.random() * 0.1);
+
+                    ctx.save();
+                    ctx.globalAlpha = p.alpha;
+                    ctx.fillStyle = `rgba(${p.color.r}, ${p.color.g}, ${p.color.b}, ${p.alpha})`;
+                    ctx.translate(p.x, p.y);
+                    ctx.rotate(p.rotation);
+
+                    if (p.shape === 'flake') {
+                        ctx.beginPath();
+                        ctx.moveTo(0, -p.size);
+                        ctx.lineTo(p.size * 0.7, -p.size * 0.3);
+                        ctx.lineTo(p.size * 0.5, p.size * 0.6);
+                        ctx.lineTo(-p.size * 0.4, p.size * 0.5);
+                        ctx.lineTo(-p.size * 0.8, -p.size * 0.1);
+                        ctx.closePath();
+                        ctx.fill();
+                    } else {
+                        ctx.beginPath();
+                        ctx.arc(0, 0, p.size, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+
+                    ctx.restore();
+
+                    if (p.life <= 0 || p.y < -200 || p.x > W + 300 || p.y > H + 200 || p.alpha < 0.02) {
+                        particles.splice(index, 1);
+                    }
+                });
+
+                if (animationPhase === 'burning' && particles.length < 400 && Math.random() < 0.6) {
+                    const textCenter = getTextCenter();
+                    for (let i = 0; i < 15; i++) {
+                        particles.push({
+                            x: textCenter.x + (Math.random() - 0.5) * textCenter.w * 0.8,
+                            y: textCenter.y + (Math.random() - 0.5) * textCenter.h * 0.7,
+                            size: 0.5 + Math.random() * 2.5,
+                            speedX: (Math.random() - 0.5) * 1,
+                            speedY: -Math.random() * 3 - 0.5,
+                            color: { r: 40 + Math.random() * 50, g: 30 + Math.random() * 35, b: 18 + Math.random() * 20 },
+                            alpha: 0.6 + Math.random() * 0.4,
+                            life: 100 + Math.random() * 200,
+                            maxLife: 100 + Math.random() * 200,
+                            rotation: Math.random() * Math.PI * 2,
+                            rotSpeed: (Math.random() - 0.5) * 0.04,
+                            shape: Math.random() < 0.7 ? 'circle' : 'flake'
+                        });
+                    }
+                }
+
+                if (animationPhase === 'done' && particles.length === 0) {
+                    cancelAnimationFrame(animationId);
+                    animationId = null;
+                    setTimeout(() => {
+                        msg.style.transition = 'opacity 3s ease';
+                        msg.style.opacity = '0';
+                    }, 4000);
+                    return;
+                }
+
+                animationId = requestAnimationFrame(animateAsh);
+            }
+
+            function init() {
+                rocket.style.display = 'block';
+                rocket.style.left = '-150px';
+                rocket.style.top = '-150px';
+                setTimeout(launchRocket, 800);
+            }
+
+            if (document.readyState === 'complete') {
+                init();
+            } else {
+                window.addEventListener('load', init);
+            }
+
+            window.addEventListener('beforeunload', () => {
+                if (animationId) cancelAnimationFrame(animationId);
+                if (smokeTrailInterval) clearInterval(smokeTrailInterval);
             });
-
-            animationId = requestAnimationFrame(animateAsh);
-        }
-
-        // بدء الحركة عند تحميل الصفحة
-        window.onload = () => {
-            setTimeout(moveRocket, 1000);
-        };
-
-        // إعادة ضبط الحجم عند تغيير نافذة المتصفح
-        window.onresize = () => {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        };
-
+        })();
     </script>
 </body>
 </html>

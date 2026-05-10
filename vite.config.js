@@ -1,10 +1,12 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { VitePWA } from "vite-plugin-pwa";
 import { visualizer } from "rollup-plugin-visualizer";
+import { fileURLToPath } from "url";
+import { dirname, resolve } from "path";
 import { readFileSync } from "fs";
-import { resolve } from "path";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 export default defineConfig({
   plugins: [
     react(),
@@ -16,7 +18,7 @@ export default defineConfig({
     // PWA plugin temporarily disabled due to Terser compatibility issues
     // To re-enable: install esbuild and update vite-plugin-pwa to compatible version
   ],
-  base: "/tarsheed/",
+  base: "/tarshid/",
   build: {
     outDir: "dist",
     sourcemap: true,
