@@ -1,17 +1,37 @@
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
+import { BrowserRouter as Router, Navigate, Route, Routes } from "react-router-dom";
+
+import { AuthProvider } from "./context/AuthContext";
+import { ThemeProvider } from "./context/ThemeContext";
+import { OnlineStatusProvider } from "./context/OnlineStatusContext";
+
+import { ErrorBoundary } from "./components/common/ErrorBoundary";
+import { ProtectedRoute } from "./components/auth/ProtectedRoute";
+import { Layout } from "./components/layout/Layout";
+
+// Pages
+import { RegisterPage } from "./pages/RegisterPage";
+import { LoginPage } from "./pages/LoginPage";
+import { DashboardPage } from "./pages/DashboardPage";
+import { AdminDashboardPage } from "./pages/AdminDashboardPage";
+
+// Assets
 import reactLogo from "./assets/react.svg";
 import viteLogo from "./assets/vite.svg";
 import heroImg from "./assets/hero.png";
+
 import { handleGitHubPagesRedirect } from "./utils/redirects";
+
 import "./App.css";
 
-// Home page (original content from the first code)
+// Home Page
 function HomePage() {
   const [count, setCount] = useState(0);
+
   useEffect(() => {
     handleGitHubPagesRedirect();
   }, []);
+
   return (
     <>
       <section id="center">
@@ -20,144 +40,72 @@ function HomePage() {
           <img src={reactLogo} className="framework" alt="React logo" />
           <img src={viteLogo} className="vite" alt="Vite logo" />
         </div>
+
         <div>
           <h1>Get started</h1>
           <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
+            Edit <code>src/App.jsx</code> and save to test HMR
           </p>
         </div>
+
         <button
           type="button"
           className="counter"
-          onClick={() => setCount((count) => count + 1)}
+          onClick={() => setCount((prev) => prev + 1)}
         >
           Count is {count}
         </button>
       </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href={`${import.meta.env.BASE_URL}icons.svg#documentation-icon`}></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href={`${import.meta.env.BASE_URL}icons.svg#social-icon`}></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href={`${import.meta.env.BASE_URL}icons.svg#github-icon`}></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href={`${import.meta.env.BASE_URL}icons.svg#discord-icon`}></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href={`${import.meta.env.BASE_URL}icons.svg#x-icon`}></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href={`${import.meta.env.BASE_URL}icons.svg#bluesky-icon`}></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
     </>
   );
 }
 
-// Placeholder pages (you can develop them later)
-function LoginPage() {
-  return (
-    <div style={{ padding: "2rem" }}>
-      <h1>Login Page</h1>
-      <p>Login form will go here</p>
-    </div>
-  );
-}
-
-function DashboardPage() {
-  return (
-    <div style={{ padding: "2rem" }}>
-      <h1>Dashboard Page</h1>
-      <p>User dashboard after login</p>
-    </div>
-  );
-}
-
-// Main App component with Router
 const basename = import.meta.env.BASE_URL || "/";
 
-export function App() {
+export const App = () => {
   return (
-    <Router basename={basename}>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
-        {/* Add more routes here */}
-      </Routes>
-    </Router>
-  );
-}
+    <ErrorBoundary>
+      <OnlineStatusProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <Router basename={basename}>
+              <Routes>
+                {/* Public Routes */}
+                <Route path="/" element={<HomePage />} />
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/register" element={<RegisterPage />} />
 
-// Default export for compatibility with Vite / create-react-app
+                {/* Protected Routes */}
+                <Route
+                  path="/dashboard"
+                  element={
+                    <ProtectedRoute>
+                      <Layout>
+                        <DashboardPage />
+                      </Layout>
+                    </ProtectedRoute>
+                  }
+                />
+
+                {/* Admin Route */}
+                <Route
+                  path="/admin"
+                  element={
+                    <ProtectedRoute>
+                      <Layout>
+                        <AdminDashboardPage />
+                      </Layout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </Router>
+          </AuthProvider>
+        </ThemeProvider>
+      </OnlineStatusProvider>
+    </ErrorBoundary>
+  );
+};
+
 export default App;
