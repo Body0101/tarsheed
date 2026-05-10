@@ -4,7 +4,7 @@ export const handleGitHubPagesRedirect = () => {
   if (redirect) {
     sessionStorage.removeItem("redirect");
 
-    // Replace URL wi thout reloading
+    // Replace URL without reloading
     window.history.replaceState(null, "", redirect);
   }
 };

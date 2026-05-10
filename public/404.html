@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>404 - Page Not Found</title>
+    <script>
+        // SPA redirect for GitHub Pages — save path and go to app root
+        sessionStorage.setItem('redirect', location.pathname);
+        location.replace('/tarsheed/');
+    </script>
     <style>
         :root {
             --bg: #ffffff;

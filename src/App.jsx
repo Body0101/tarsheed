@@ -61,7 +61,7 @@ function HomePage() {
         </div>
         <div id="social">
           <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
+            <use href={`${import.meta.env.BASE_URL}icons.svg#social-icon`}></use>
           </svg>
           <h2>Connect with us</h2>
           <p>Join the Vite community</p>
@@ -73,7 +73,7 @@ function HomePage() {
                   role="presentation"
                   aria-hidden="true"
                 >
-                  <use href="/icons.svg#github-icon"></use>
+                  <use href={`${import.meta.env.BASE_URL}icons.svg#github-icon`}></use>
                 </svg>
                 GitHub
               </a>
@@ -85,7 +85,7 @@ function HomePage() {
                   role="presentation"
                   aria-hidden="true"
                 >
-                  <use href="/icons.svg#discord-icon"></use>
+                  <use href={`${import.meta.env.BASE_URL}icons.svg#discord-icon`}></use>
                 </svg>
                 Discord
               </a>
@@ -97,7 +97,7 @@ function HomePage() {
                   role="presentation"
                   aria-hidden="true"
                 >
-                  <use href="/icons.svg#x-icon"></use>
+                  <use href={`${import.meta.env.BASE_URL}icons.svg#x-icon`}></use>
                 </svg>
                 X.com
               </a>
@@ -109,7 +109,7 @@ function HomePage() {
                   role="presentation"
                   aria-hidden="true"
                 >
-                  <use href="/icons.svg#bluesky-icon"></use>
+                  <use href={`${import.meta.env.BASE_URL}icons.svg#bluesky-icon`}></use>
                 </svg>
                 Bluesky
               </a>
