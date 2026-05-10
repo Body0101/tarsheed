@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>404 - Lost in Space</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            text-align: center;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* ===== Stars Background ===== */
+        .stars {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: transparent;
+            z-index: 0;
+            animation: twinkle 4s ease-in-out infinite alternate;
+        }
+
+        .stars::before,
+        .stars::after {
+            content: "";
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background-image: 
+                radial-gradient(2px 2px at 20px 30px, #ffffff, rgba(0,0,0,0)),
+                radial-gradient(2px 2px at 40px 70px, #f0f0f0, rgba(0,0,0,0)),
+                radial-gradient(2px 2px at 50px 160px, #ddd, rgba(0,0,0,0)),
+                radial-gradient(2px 2px at 90px 40px, #fff, rgba(0,0,0,0)),
+                radial-gradient(2px 2px at 130px 80px, #cccccc, rgba(0,0,0,0)),
+                radial-gradient(2px 2px at 160px 120px, #ffffff, rgba(0,0,0,0)),
+                radial-gradient(1px 1px at 200px 50px, #eee, rgba(0,0,0,0)),
+                radial-gradient(1px 1px at 250px 200px, #fff, rgba(0,0,0,0));
+            background-size: 300px 300px;
+            background-repeat: repeat;
+            animation: moveStars 100s linear infinite;
+        }
+
+        .stars::after {
+            background-size: 200px 200px;
+            animation-duration: 150s;
+            opacity: 0.7;
+        }
+
+        /* ===== Floating geometric shapes ===== */
+        .shape {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(255, 203, 92, 0.15);
+            backdrop-filter: blur(5px);
+            animation: floatShape 12s infinite ease-in-out;
+            z-index: 1;
+        }
+        .shape:nth-child(1) {
+            width: 180px; height: 180px;
+            top: -60px; left: -60px;
+            animation-delay: 0s;
+        }
+        .shape:nth-child(2) {
+            width: 250px; height: 250px;
+            bottom: -100px; right: -80px;
+            background: rgba(255, 107, 107, 0.2);
+            animation-delay: -4s;
+        }
+        .shape:nth-child(3) {
+            width: 120px; height: 120px;
+            top: 70%; left: 10%;
+            background: rgba(100, 200, 255, 0.2);
+            animation-delay: -8s;
+        }
+
+        /* ===== Main Container ===== */
+        .container {
+            position: relative;
+            z-index: 10;
+            padding: 2rem;
+            max-width: 700px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* ===== Glitch 404 ===== */
+        .error-code {
+            font-size: 9rem;
+            font-weight: 900;
+            position: relative;
+            color: #fff;
+            text-shadow: 0 0 10px rgba(255,255,255,0.5);
+            margin-bottom: 0.5rem;
+            animation: float 4s ease-in-out infinite;
+        }
+
+        .error-code::before,
+        .error-code::after {
+            content: "404";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            color: #fff;
+            overflow: hidden;
+            clip: rect(0, 900px, 0, 0);
+        }
+
+        .error-code::before {
+            left: 2px;
+            text-shadow: -2px 0 #ff6b6b;
+            animation: glitch-anim-1 2s infinite linear alternate-reverse;
+        }
+
+        .error-code::after {
+            left: -2px;
+            text-shadow: -2px 0 #00d2ff;
+            animation: glitch-anim-2 3s infinite linear alternate-reverse;
+        }
+
+        /* ===== SVG Scene ===== */
+        .scene {
+            margin: 2rem 0;
+            width: 220px;
+            height: 220px;
+        }
+
+        .subtitle {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            background: linear-gradient(45deg, #feca57, #ff6b6b);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .message {
+            font-size: 1.1rem;
+            color: #a4b0be;
+            margin-bottom: 2rem;
+            line-height: 1.7;
+            max-width: 450px;
+        }
+
+        /* ===== Countdown ===== */
+        .countdown {
+            font-weight: bold;
+            color: #feca57;
+            background: rgba(255,255,255,0.08);
+            backdrop-filter: blur(10px);
+            padding: 0.75rem 2rem;
+            border-radius: 50px;
+            display: inline-block;
+            margin-bottom: 2rem;
+            font-size: 1rem;
+            border: 1px solid rgba(255,255,255,0.2);
+            animation: pulse 2s infinite;
+        }
+        .countdown span {
+            color: #ff6b6b;
+            font-size: 1.3rem;
+            font-weight: 700;
+        }
+
+        /* ===== Buttons ===== */
+        .btn {
+            display: inline-block;
+            padding: 0.9rem 2.2rem;
+            background: rgba(255,255,255,0.12);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 50px;
+            color: #fff;
+            font-size: 1rem;
+            text-decoration: none;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            margin: 0.4rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn:hover {
+            background: #ff6b6b;
+            border-color: #ff6b6b;
+            transform: translateY(-4px);
+            box-shadow: 0 15px 25px rgba(255,107,107,0.4);
+            color: #fff;
+        }
+
+        .btn.cancel {
+            background: rgba(255,255,255,0.05);
+            border-color: rgba(255,255,255,0.3);
+        }
+
+        .btn.cancel:hover {
+            background: #feca57;
+            border-color: #feca57;
+            color: #1e272e;
+        }
+
+        /* ===== Shooting Star ===== */
+        .shooting-star {
+            position: absolute;
+            top: -10%;
+            left: 80%;
+            width: 3px;
+            height: 80px;
+            background: linear-gradient(to bottom, rgba(255,255,255,0), #ffffff);
+            border-radius: 0 0 50% 50%;
+            animation: shoot 4s linear infinite;
+            z-index: 5;
+            opacity: 0.8;
+        }
+        .shooting-star::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 3px;
+            height: 80px;
+            background: linear-gradient(to top, rgba(255,255,255,0.8), rgba(255,255,255,0));
+            filter: blur(1px);
+        }
+        .shooting-star:nth-child(2) {
+            left: 20%;
+            top: -20%;
+            animation-duration: 6s;
+            animation-delay: -2s;
+            height: 100px;
+        }
+
+        /* ===== Keyframes ===== */
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-15px); }
+        }
+        @keyframes floatShape {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(15px, -20px) scale(1.05); }
+            50% { transform: translate(-10px, 25px) scale(0.95); }
+            75% { transform: translate(20px, 10px) scale(1.02); }
+        }
+        @keyframes twinkle {
+            0% { opacity: 0.6; }
+            100% { opacity: 1; }
+        }
+        @keyframes moveStars {
+            from { transform: translate(0, 0); }
+            to { transform: translate(-100px, -50px); }
+        }
+        @keyframes glitch-anim-1 {
+            0% { clip: rect(42px, 9999px, 44px, 0); }
+            5% { clip: rect(12px, 9999px, 59px, 0); }
+            10% { clip: rect(48px, 9999px, 29px, 0); }
+            15% { clip: rect(42px, 9999px, 53px, 0); }
+            20% { clip: rect(10px, 9999px, 29px, 0); }
+            25% { clip: rect(0px, 9999px, 0px, 0); }
+            30% { clip: rect(54px, 9999px, 56px, 0); }
+            35% { clip: rect(11px, 9999px, 33px, 0); }
+            40% { clip: rect(24px, 9999px, 18px, 0); }
+            45% { clip: rect(63px, 9999px, 49px, 0); }
+            50% { clip: rect(29px, 9999px, 66px, 0); }
+            55% { clip: rect(8px, 9999px, 84px, 0); }
+            60% { clip: rect(53px, 9999px, 43px, 0); }
+            65% { clip: rect(0px, 9999px, 0px, 0); }
+            70% { clip: rect(63px, 9999px, 89px, 0); }
+            75% { clip: rect(44px, 9999px, 28px, 0); }
+            80% { clip: rect(39px, 9999px, 37px, 0); }
+            85% { clip: rect(4px, 9999px, 92px, 0); }
+            90% { clip: rect(55px, 9999px, 3px, 0); }
+            95% { clip: rect(23px, 9999px, 71px, 0); }
+            100% { clip: rect(38px, 9999px, 52px, 0); }
+        }
+        @keyframes glitch-anim-2 {
+            0% { clip: rect(25px, 9999px, 78px, 0); }
+            5% { clip: rect(60px, 9999px, 42px, 0); }
+            10% { clip: rect(10px, 9999px, 52px, 0); }
+            15% { clip: rect(65px, 9999px, 14px, 0); }
+            20% { clip: rect(13px, 9999px, 65px, 0); }
+            25% { clip: rect(0px, 9999px, 0px, 0); }
+            30% { clip: rect(77px, 9999px, 49px, 0); }
+            35% { clip: rect(32px, 9999px, 19px, 0); }
+            40% { clip: rect(87px, 9999px, 30px, 0); }
+            45% { clip: rect(47px, 9999px, 88px, 0); }
+            50% { clip: rect(22px, 9999px, 70px, 0); }
+            55% { clip: rect(0px, 9999px, 0px, 0); }
+            60% { clip: rect(81px, 9999px, 4px, 0); }
+            65% { clip: rect(28px, 9999px, 91px, 0); }
+            70% { clip: rect(2px, 9999px, 65px, 0); }
+            75% { clip: rect(68px, 9999px, 40px, 0); }
+            80% { clip: rect(3px, 9999px, 45px, 0); }
+            85% { clip: rect(33px, 9999px, 83px, 0); }
+            90% { clip: rect(28px, 9999px, 1px, 0); }
+            95% { clip: rect(71px, 9999px, 30px, 0); }
+            100% { clip: rect(46px, 9999px, 74px, 0); }
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(255, 203, 92, 0.4); }
+            70% { box-shadow: 0 0 0 15px rgba(255, 203, 92, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 203, 92, 0); }
+        }
+        @keyframes shoot {
+            0% { transform: translate(0, 0) rotate(-35deg); opacity: 1; }
+            70% { opacity: 1; }
+            100% { transform: translate(-600px, 600px) rotate(-35deg); opacity: 0; }
+        }
+        @keyframes wobble {
+            0%, 100% { transform: translateX(0); }
+            50% { transform: translateX(5px); }
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 600px) {
+            .error-code {
+                font-size: 6rem;
+            }
+            .subtitle {
+                font-size: 1.6rem;
+            }
+            .scene {
+                width: 160px;
+                height: 160px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Animated Background Elements -->
+    <div class="stars"></div>
+    <div class="shape"></div>
+    <div class="shape"></div>
+    <div class="shape"></div>
+    <div class="shooting-star"></div>
+    <div class="shooting-star"></div>
+
+    <!-- Main Content -->
+    <div class="container">
+        <!-- Glitch 404 -->
+        <div class="error-code" aria-hidden="true">404</div>
+        <h1 class="subtitle">Page Lost in Space</h1>
+        <p class="message">
+            The page you're looking for has drifted into a black hole or never existed.<br>
+            Don't worry, our rocket will take you back home.
+        </p>
+
+        <!-- Animated SVG Scene (Rocket + Planet + Stars) -->
+        <svg class="scene" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+            <!-- Twinkling stars -->
+            <circle cx="30" cy="40" r="1.5" fill="#fff">
+                <animate attributeName="opacity" values="0.3;1;0.3" dur="2s" repeatCount="indefinite"/>
+            </circle>
+            <circle cx="170" cy="30" r="2" fill="#fff">
+                <animate attributeName="opacity" values="0.8;0.2;0.8" dur="3.5s" repeatCount="indefinite"/>
+            </circle>
+            <circle cx="15" cy="160" r="1.5" fill="#fff">
+                <animate attributeName="opacity" values="0.6;1;0.6" dur="4s" repeatCount="indefinite"/>
+            </circle>
+
+            <!-- Planet with rotating ring -->
+            <g transform="translate(160, 170)">
+                <circle cx="0" cy="0" r="18" fill="#ff9f43" opacity="0.9"/>
+                <ellipse cx="0" cy="0" rx="32" ry="8" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="2" transform="rotate(-25)">
+                    <animateTransform attributeName="transform" type="rotate" from="-25 0 0" to="335 0 0" dur="8s" repeatCount="indefinite"/>
+                </ellipse>
+            </g>
+
+            <!-- Rocket floating -->
+            <g>
+                <animateTransform attributeName="transform" type="translate" values="0,0; 0,-18; 0,0" dur="2.2s" repeatCount="indefinite" />
+                <!-- Rocket body -->
+                <path d="M100 65 L125 115 L100 130 L75 115 Z" fill="#ff6b6b" stroke="#fff" stroke-width="1.5"/>
+                <!-- Window -->
+                <circle cx="100" cy="100" r="10" fill="#ffffff" stroke="#dfe6e9" stroke-width="1"/>
+                <circle cx="100" cy="100" r="6" fill="#74b9ff"/>
+                <!-- Left fin -->
+                <path d="M75 115 L55 140 L75 130 Z" fill="#feca57" stroke="#fff" stroke-width="0.5"/>
+                <!-- Right fin -->
+                <path d="M125 115 L145 140 L125 130 Z" fill="#feca57" stroke="#fff" stroke-width="0.5"/>
+                <!-- Flame -->
+                <path d="M100 130 L87 155 L100 145 L113 155 Z" fill="#ff6348" stroke="#ff4500" stroke-width="1">
+                    <animate attributeName="d" 
+                        values="M100 130 L87 155 L100 145 L113 155 Z;M100 130 L84 160 L100 142 L116 160 Z;M100 130 L87 155 L100 145 L113 155 Z" 
+                        dur="0.25s" repeatCount="indefinite"/>
+                </path>
+                <!-- Smoke trails -->
+                <circle cx="100" cy="160" r="3" fill="#dfe6e9" opacity="0.4">
+                    <animate attributeName="cy" values="160;180" dur="1s" repeatCount="indefinite"/>
+                    <animate attributeName="opacity" values="0.4;0" dur="1s" repeatCount="indefinite"/>
+                </circle>
+            </g>
+        </svg>
+
+        <!-- Countdown -->
+        <div class="countdown" id="countdownBox">
+            Auto‑redirect in <span id="timer">10</span> seconds
+        </div>
+
+        <!-- Buttons -->
+        <div>
+            <a href="/smart-home-automation-frontend/" class="btn" onclick="stopAutoRedirect()">🚀 Take Me Home</a>
+            <button class="btn cancel" onclick="stopAutoRedirect()">Cancel Redirect</button>
+        </div>
+    </div>
+
+    <script>
+        // ====== Customizable Settings ======
+        const REDIRECT_URL = '/smart-home-automation-frontend/'; // Change to your app's homepage
+        const COUNTDOWN_SECONDS = 10;           // Seconds before redirect
+
+        // ====== Countdown Logic ======
+        let timeLeft = COUNTDOWN_SECONDS;
+        let redirectTimer;
+        let redirectActive = true;
+
+        const timerElement = document.getElementById('timer');
+        const countdownBox = document.getElementById('countdownBox');
+
+        function updateCountdown() {
+            if (!redirectActive) {
+                countdownBox.innerHTML = 'Auto‑redirect canceled ✅';
+                return;
+            }
+            timeLeft--;
+            if (timeLeft <= 0) {
+                window.location.href = REDIRECT_URL;
+                return;
+            }
+            timerElement.textContent = timeLeft;
+            redirectTimer = setTimeout(updateCountdown, 1000);
+        }
+
+        function stopAutoRedirect() {
+            redirectActive = false;
+            clearTimeout(redirectTimer);
+            countdownBox.innerHTML = 'Auto‑redirect canceled ✅';
+            // The "Take Me Home" button also stops the countdown and navigates immediately
+        }
+
+        // Start the countdown on page load
+        redirectTimer = setTimeout(updateCountdown, 1000);
+    </script>
+</body>
+</html>
