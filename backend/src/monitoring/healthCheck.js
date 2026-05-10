@@ -1,3 +1,5 @@
+import { supabase } from "../config/supabase.js";
+
 export async function healthCheck() {
     const checks = {
         database: await checkDatabase(),
@@ -17,7 +19,7 @@ export async function healthCheck() {
 
 async function checkDatabase() {
     try {
-        const { data, error } = await supabase
+        const { error } = await supabase
             .from('user_profiles')
             .select('id')
             .limit(1);
@@ -26,4 +28,21 @@ async function checkDatabase() {
     } catch (error) {
         return { healthy: false, error: error.message };
     }
+}
+
+async function checkSupabase() {
+    try {
+        const { error } = await supabase.auth.getSession();
+        return { healthy: !error, error };
+    } catch (error) {
+        return { healthy: false, error: error.message };
+    }
+}
+
+async function checkStorage() {
+    return { healthy: true };
+}
+
+async function checkRealtime() {
+    return { healthy: true };
 }

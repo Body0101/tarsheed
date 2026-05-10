@@ -17,7 +17,10 @@ export default defineConfig([
       "react-refresh/only-export-components": "off",
     },
     languageOptions: {
-      globals: globals.browser,
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+      },
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
   },

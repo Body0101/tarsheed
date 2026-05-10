@@ -13,6 +13,9 @@ const packageJson = JSON.parse(
   readFileSync(resolve(__dirname, "package.json"), "utf-8")
 );
 
+const basePath = process.env.VITE_BASE_PATH || "/";
+const enableBundleReport = process.env.VITE_ANALYZE === "true";
+
 export default defineConfig({
   plugins: [
     react(),
@@ -26,15 +29,19 @@ export default defineConfig({
     }),
 
     // Bundle analyzer
-    visualizer({
-      open: true,
-      gzipSize: true,
-      brotliSize: true,
-    }),
+    ...(enableBundleReport
+      ? [
+          visualizer({
+            open: false,
+            gzipSize: true,
+            brotliSize: true,
+          }),
+        ]
+      : []),
   ],
 
   // غيّرها حسب اسم الريبو لو هترفع على GitHub Pages
-  base: "/smart-home-automation/",
+  base: basePath,
 
   build: {
     outDir: "dist",
