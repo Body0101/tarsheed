@@ -41,7 +41,7 @@ export default defineConfig({
   ],
 
   // غيّرها حسب اسم الريبو لو هترفع على GitHub Pages
-  base: basePath,
+  base: /tarsheed/,
 
   build: {
     outDir: "dist",
