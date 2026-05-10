@@ -18,7 +18,7 @@ export default defineConfig({
     // PWA plugin temporarily disabled due to Terser compatibility issues
     // To re-enable: install esbuild and update vite-plugin-pwa to compatible version
   ],
-  base: "/tarshid/",
+  base: "/tarsheed/",
   build: {
     outDir: "dist",
     sourcemap: true,
