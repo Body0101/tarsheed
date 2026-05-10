@@ -27,9 +27,9 @@ Supabase is an open-source Firebase alternative that provides a complete backend
 - **Real-time**: Live data synchronization
 - **Edge Functions**: Serverless functions (optional)
 
-## Account Creation
+## Account Creation (DONE)
 
-### 1. Sign Up for Supabase
+### 1. Sign Up for Supabase (DONE)
 
 1. Go to [https://supabase.com](https://supabase.com)
 2. Click **"Start your project"**
@@ -37,7 +37,7 @@ Supabase is an open-source Firebase alternative that provides a complete backend
 4. Complete the registration process
 5. Verify your email address if required
 
-### 2. Choose Pricing Plan
+### 2. Choose Pricing Plan (DONE)
 
 **Free Tier (Recommended for Development)**:
 - 500MB Database storage
@@ -55,9 +55,9 @@ Supabase is an open-source Firebase alternative that provides a complete backend
 - 5M Database rows/month
 - Unlimited Project connections
 
-## Project Setup
+## Project Setup (DONE)
 
-### 1. Create New Project
+### 1. Create New Project (DONE)
 
 1. After logging in, click **"New Project"**
 2. Select your **Organization** (create one if needed)
@@ -68,7 +68,7 @@ Supabase is an open-source Firebase alternative that provides a complete backend
 4. Click **"Create new project"**
 5. Wait for project initialization (2-3 minutes)
 
-### 2. Get Project Credentials
+### 2. Get Project Credentials (DONE)
 
 Once your project is ready:
 
@@ -80,11 +80,11 @@ Once your project is ready:
 
 **Security Note**: Never expose the `service_role` key in frontend code!
 
-## Database Configuration
+## Database Configuration (DONE)
 
-### 1. Database Schema Design
+### 1. Database Schema Design (DONE)
 
-#### Users Table
+#### Users Table (DONE)
 ```sql
 -- Create user_profiles table
 CREATE TABLE public.user_profiles (
@@ -108,7 +108,7 @@ CREATE INDEX idx_user_profiles_role ON public.user_profiles(role);
 CREATE INDEX idx_user_profiles_created_at ON public.user_profiles(created_at);
 ```
 
-#### Devices Table
+#### Devices Table (DONE)
 ```sql
 -- Create devices table
 CREATE TABLE public.devices (
@@ -136,7 +136,7 @@ CREATE INDEX idx_devices_last_updated ON public.devices(last_updated);
 CREATE INDEX idx_devices_is_active ON public.devices(is_active);
 ```
 
-#### Device Timers Table
+#### Device Timers Table (DONE)
 ```sql
 -- Create device_timers table
 CREATE TABLE public.device_timers (
@@ -156,7 +156,7 @@ CREATE INDEX idx_device_timers_end_time ON public.device_timers(end_time);
 CREATE INDEX idx_device_timers_active ON public.device_timers(active);
 ```
 
-#### Device Permissions Table
+#### Device Permissions Table (DONE)
 ```sql
 -- Create device_permissions table
 CREATE TABLE public.device_permissions (
@@ -176,7 +176,7 @@ CREATE INDEX idx_device_permissions_user_id ON public.device_permissions(user_id
 CREATE INDEX idx_device_permissions_device_id ON public.device_permissions(device_id);
 ```
 
-#### Device History Table
+#### Device History Table (DONE)
 ```sql
 -- Create device_history table
 CREATE TABLE public.device_history (
@@ -198,7 +198,7 @@ CREATE INDEX idx_device_history_created_at ON public.device_history(created_at);
 CREATE INDEX idx_device_history_action ON public.device_history(action);
 ```
 
-#### User Preferences Table
+#### User Preferences Table (DONE)
 ```sql
 -- Create user_preferences table
 CREATE TABLE public.user_preferences (
@@ -216,14 +216,14 @@ CREATE INDEX idx_user_preferences_user_id ON public.user_preferences(user_id);
 CREATE INDEX idx_user_preferences_key ON public.user_preferences(preference_key);
 ```
 
-### 2. Execute SQL in Supabase
+### 2. Execute SQL in Supabase (DONE)
 
 1. Go to **SQL Editor** in your Supabase dashboard
 2. Copy and paste the SQL schema above
 3. Click **"Run"** to execute
 4. Verify all tables were created successfully
 
-### 3. Enable Row Level Security
+### 3. Enable Row Level Security (DONE)
 
 ```sql
 -- Enable RLS on all tables
@@ -235,14 +235,14 @@ ALTER TABLE public.device_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_preferences ENABLE ROW LEVEL SECURITY;
 ```
 
-## Authentication Setup
+## Authentication Setup (DONE)
 
-### 1. Configure Authentication Providers
+### 1. Configure Authentication Providers (DONE)
 
 1. Go to **Authentication** → **Settings**
 2. Configure the following:
 
-#### Email Authentication
+#### Email Authentication (DONE)
 - **Enable Email signup**: ✅ Enabled
 - **Confirm email**: ✅ Enabled (recommended)
 - **Enable email change**: ✅ Enabled
@@ -251,12 +251,12 @@ ALTER TABLE public.user_preferences ENABLE ROW LEVEL SECURITY;
   - `https://your-domain.com/auth/callback`
   - `http://localhost:3000/auth/callback` (development)
 
-#### Social Providers (Optional)
+#### Social Providers (Optional) (DONE)
 - **GitHub**: Enable if you want GitHub login
 - **Google**: Enable if you want Google login
 - **Apple**: Enable if you want Apple login
 
-### 2. Create Auth Policies
+### 2. Create Auth Policies (DONE)
 
 ```sql
 -- Users can only see their own profile
@@ -290,7 +290,7 @@ CREATE POLICY "Admins can update all profiles" ON public.user_profiles
     );
 ```
 
-### 3. Create User Registration Trigger
+### 3. Create User Registration Trigger (DONE)
 
 ```sql
 -- Create function to handle user registration
@@ -314,9 +314,9 @@ CREATE TRIGGER on_auth_user_created
     FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 ```
 
-## Row Level Security (RLS)
+## Row Level Security (RLS) (DONE)
 
-### Device Access Policies
+### Device Access Policies (DONE)
 
 ```sql
 -- Users can view devices they have permission for
@@ -357,7 +357,7 @@ CREATE POLICY "Admins can insert devices" ON public.devices
     );
 ```
 
-### Device History Policies
+### Device History Policies (DONE)
 
 ```sql
 -- Users can view history of devices they have permission for
@@ -382,7 +382,7 @@ CREATE POLICY "System can insert device history" ON public.device_history
     FOR INSERT WITH CHECK (user_id IS NULL);
 ```
 
-### Device Permissions Policies
+### Device Permissions Policies (DONE)
 
 ```sql
 -- Users can view their own device permissions
@@ -407,7 +407,7 @@ CREATE POLICY "Users can grant permissions" ON public.device_permissions
 
 ## Real-time Configuration
 
-### 1. Enable Real-time for Tables
+### 1. Enable Real-time for Tables (DONE)
 
 ```sql
 -- Enable real-time for critical tables
@@ -418,7 +418,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.device_permissions;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.user_profiles;
 ```
 
-### 2. Real-time Subscription Policies
+### 2. Real-time Subscription Policies (DONE)
 
 ```sql
 -- Users can subscribe to devices they have permission for
@@ -498,32 +498,32 @@ export const subscribeToTimerUpdates = (deviceId, callback) => {
 };
 ```
 
-## Storage Configuration
+## Storage Configuration (DONE)
 
-### 1. Create Storage Buckets
+### 1. Create Storage Buckets (DONE)
 
 1. Go to **Storage** in your Supabase dashboard
 2. Create the following buckets:
 
-#### User Avatars Bucket
+#### User Avatars Bucket (DONE)
 - **Name**: `avatars`
 - **Public**: Yes
 - **File size limit**: 2MB
 - **Allowed MIME types**: `image/jpeg`, `image/png`, `image/webp`
 
-#### Device Images Bucket
+#### Device Images Bucket (DONE)
 - **Name**: `device-images`
 - **Public**: Yes
 - **File size limit**: 5MB
 - **Allowed MIME types**: `image/jpeg`, `image/png`, `image/webp`
 
-#### System Logs Bucket
+#### System Logs Bucket (DONE)
 - **Name**: `system-logs`
 - **Public**: No
 - **File size limit**: 10MB
 - **Allowed MIME types**: `application/json`, `text/plain`
 
-### 2. Storage Policies
+### 2. Storage Policies (DONE)
 
 ```sql
 -- Users can upload their own avatar
@@ -634,7 +634,7 @@ LOG_FILE=logs/app.log
 
 ## Database Migrations
 
-### 1. Migration System Setup
+### 1. Migration System Setup (DONE)
 
 Create migration files in `backend/src/database/migrations/`:
 
