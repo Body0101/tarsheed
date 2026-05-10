@@ -1,22 +1,3 @@
-const CACHE_NAME = 'tarshid-v1';
-const urlsToCache = [
-  '/',
-  '/favicon.svg',
-  '/icons.svg'
-];
-
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(urlsToCache))
-  );
-});
-
-self.addEventListener('fetch', event => {
-  event.respondWith(
-    caches.match(event.request)
-      .then(response => {
-        return response || fetch(event.request);
-      })
-  );
-});
+if(!self.define){let e,s={};const i=(i,n)=>(i=new URL(i+".js",n).href,s[i]||new Promise(s=>{if("document"in self){const e=document.createElement("script");e.src=i,e.onload=s,document.head.appendChild(e)}else e=i,importScripts(i),s()}).then(()=>{let e=s[i];if(!e)throw new Error(`Module ${i} didn’t register its module`);return e}));self.define=(n,r)=>{const l=e||("document"in self?document.currentScript.src:"")||location.href;if(s[l])return;let o={};const t=e=>i(e,l),u={module:{uri:l},exports:o,require:t};s[l]=Promise.all(n.map(e=>u[e]||t(e))).then(e=>(r(...e),o))}}define(["./workbox-9c191d2f"],function(e){"use strict";self.skipWaiting(),e.clientsClaim(),e.precacheAndRoute([{url:"registerSW.js",revision:"1872c500de691dce40960bb85481de07"},{url:"index.html",revision:"51cc4f6067165c9d8190e3e7b1f4d18d"},{url:"icons.svg",revision:"3b4fcfcf393eca4d264dca4a4663bc37"},{url:"favicon.svg",revision:"7e840862161341271697daa99a40d76b"},{url:"404.html",revision:"903eff11df41e5c7e3de1ddcbae00f53"},{url:"assets/svg/vite-BF8QNONU.svg",revision:null},{url:"assets/svg/react-CHdo91hT.svg",revision:null},{url:"assets/png/hero-CLDdwZDr.png",revision:null},{url:"assets/js/vendor-ChKfZ9S1.js",revision:null},{url:"assets/js/supabase-BvNWBgIa.js",revision:null},{url:"assets/js/rolldown-runtime-CTaD8082.js",revision:null},{url:"assets/js/index-C60iav87.js",revision:null},{url:"assets/css/index-kSiX5FIb.css",revision:null},{url:"manifest.webmanifest",revision:"8dc6eaf23c81550c457706e05afcacc0"}],{}),e.cleanupOutdatedCaches(),e.registerRoute(new e.NavigationRoute(e.createHandlerBoundToURL("index.html")))});
+//# sourceMappingURL=sw.js.map
+//# sourceMappingURL=sw.js.map
