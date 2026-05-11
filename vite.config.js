@@ -13,7 +13,8 @@ const packageJson = JSON.parse(
   readFileSync(resolve(__dirname, "package.json"), "utf-8")
 );
 
-const basePath = process.env.VITE_BASE_PATH || "/";
+// For GitHub Pages deployment with /tarsheed/ subdirectory
+const basePath = process.env.VITE_BASE_PATH || "/tarsheed/";
 const enableBundleReport = process.env.VITE_ANALYZE === "true";
 
 export default defineConfig({
