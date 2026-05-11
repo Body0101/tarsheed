@@ -40,8 +40,8 @@ export default defineConfig({
       : []),
   ],
 
-  // غيّرها حسب اسم الريبو لو هترفع على GitHub Pages
-  base: /tarsheed/,
+  // Base path for GitHub Pages deployment
+  base: process.env.VITE_BASE_PATH || "/",
 
   build: {
     outDir: "dist",

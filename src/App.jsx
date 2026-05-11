@@ -14,6 +14,8 @@ import { RegisterPage } from "./pages/RegisterPage";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { AdminDashboardPage } from "./pages/AdminDashboardPage";
+import { DevicesPage } from "./pages/DevicesPage";
+import { PermissionsPage } from "./pages/PermissionsPage";
 
 // Assets
 import reactLogo from "./assets/react.svg";
@@ -23,6 +25,7 @@ import heroImg from "./assets/hero.png";
 import { handleGitHubPagesRedirect } from "./utils/redirects";
 
 import "./App.css";
+import "./styles/designSystem.css";
 
 // Home Page
 function HomePage() {
@@ -87,6 +90,16 @@ export const App = () => {
                   }
                 />
 
+                {/* Devices Route */}
+                <Route
+                  path="/devices"
+                  element={
+                    <ProtectedRoute>
+                      <DevicesPage />
+                    </ProtectedRoute>
+                  }
+                />
+
                 {/* Admin Route */}
                 <Route
                   path="/admin"
@@ -95,6 +108,16 @@ export const App = () => {
                       <Layout>
                         <AdminDashboardPage />
                       </Layout>
+                    </ProtectedRoute>
+                  }
+                />
+
+                {/* Permissions Management Route */}
+                <Route
+                  path="/admin/permissions"
+                  element={
+                    <ProtectedRoute>
+                      <PermissionsPage />
                     </ProtectedRoute>
                   }
                 />
