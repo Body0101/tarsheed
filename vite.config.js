@@ -14,7 +14,6 @@ const packageJson = JSON.parse(
 );
 
 // For GitHub Pages deployment with /tarsheed/ subdirectory
-const basePath = process.env.VITE_BASE_PATH || "/tarsheed/";
 const enableBundleReport = process.env.VITE_ANALYZE === "true";
 
 export default defineConfig({
@@ -42,7 +41,7 @@ export default defineConfig({
   ],
 
   // Base path for GitHub Pages deployment
-  base: basePath,
+  base: "/tarsheed/",
 
   build: {
     outDir: "dist",
