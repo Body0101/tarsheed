@@ -42,7 +42,7 @@ export default defineConfig({
   ],
 
   // Base path for GitHub Pages deployment
-  base: "/tarsheed/",
+  base: basePath,
 
   build: {
     outDir: "dist",
