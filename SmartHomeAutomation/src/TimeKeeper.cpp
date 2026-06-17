@@ -148,9 +148,10 @@ bool TimeKeeper::setTimezoneOffsetMinutes(int32_t offsetMinutes) {
   return applyTimezoneRule(buildFixedOffsetTimezone(offsetMinutes), true);
 }
 
-bool TimeKeeper::trySyncFromNtp() {
-  // Timer subsystem must stay on user-device time once available.
-  if (userTimeValid_) {
+bool TimeKeeper::trySyncFromNtp(bool force) {
+  // Offline timers keep user-device time once available. Online/cloud mode can
+  // force NTP so the ESP is no longer dependent on a local browser clock.
+  if (userTimeValid_ && !force) {
     return false;
   }
   if (WiFi.status() != WL_CONNECTED) {

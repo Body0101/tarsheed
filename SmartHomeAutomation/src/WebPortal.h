@@ -16,8 +16,10 @@ class WebPortal
 {
 public:
   void begin(ControlEngine *engine, StorageLayer *storage, TimeKeeper *timeKeeper);
+  void end();
   void loop();
   void recoverAfterAccessPointRestart();
+  bool isRunning() const;
 
   bool enqueueEvent(const String &eventJson, bool bufferIfOffline);
   uint16_t connectedClientCount() const;
@@ -115,6 +117,8 @@ private:
   QueueHandle_t outboundQueue_ = nullptr;
   QueueHandle_t inboundQueue_ = nullptr;
   SemaphoreHandle_t contextMutex_ = nullptr;
+  bool initialized_ = false;
+  bool running_ = false;
   std::array<bool, WS_MAX_CLIENTS> clients_{};
   std::array<String, WS_MAX_CLIENTS> clientMacs_{};
   uint16_t connectedClients_ = 0;

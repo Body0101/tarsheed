@@ -5,6 +5,7 @@
 #include <WiFiClientSecure.h>
 #include <cstring>
 #include <initializer_list>
+#include <vector>
 
 #include "Config.h"
 #include "Utils.h"
@@ -75,7 +76,8 @@ void CloudSyncService::begin(ControlEngine *engine, StorageLayer *storage, TimeK
   engine_ = engine;
   storage_ = storage;
   timeKeeper_ = timeKeeper;
-  configured_ = isCloudEnabledAtBuild() && strlen(SUPABASE_URL) > 0 && strlen(SUPABASE_PUBLISHABLE_KEY) > 0;
+  configured_ = isCloudEnabledAtBuild() && strlen(SUPABASE_URL) > 0 &&
+                strlen(SUPABASE_PUBLISHABLE_KEY) > 0 && strlen(CLOUD_COMMAND_TOKEN) > 0;
   if (!configured_) {
     Serial.println("[Cloud] Disabled. Offline/local mode remains primary.");
     return;
@@ -90,6 +92,8 @@ void CloudSyncService::begin(ControlEngine *engine, StorageLayer *storage, TimeK
 }
 
 bool CloudSyncService::isConfigured() const { return configured_; }
+
+void CloudSyncService::requestStateSync() { stateDirty_ = true; }
 
 bool CloudSyncService::enqueueLocalEvent(const String &eventJson) {
   if (!configured_ || !eventQueue_) {
@@ -145,7 +149,10 @@ String CloudSyncService::deviceId() {
   deviceId_ = CLOUD_DEVICE_ID;
   if (deviceId_.isEmpty()) {
     deviceId_ = "esp32-";
-    String mac = WiFi.softAPmacAddress();
+    String mac = WiFi.macAddress();
+    if (mac.isEmpty() || mac == "00:00:00:00:00:00") {
+      mac = WiFi.softAPmacAddress();
+    }
     mac.replace(":", "");
     mac.toLowerCase();
     deviceId_ += mac;
@@ -259,21 +266,23 @@ bool CloudSyncService::sendEventToCloud(const String &eventJson) {
 
   String dedupe = deviceId() + ":" + u64ToString(eventTs) + ":" + eventName + ":" + String(channel);
   String body;
-  body.reserve(eventJson.length() + 180);
-  body += "[{\"device_id\":";
+  body.reserve(eventJson.length() + 260);
+  body += "{\"p_device_id\":";
   body += jsonString(deviceId());
-  body += ",\"event\":";
+  body += ",\"p_token\":";
+  body += jsonString(CLOUD_COMMAND_TOKEN);
+  body += ",\"p_event\":";
   body += jsonString(eventName);
-  body += ",\"event_ts\":";
+  body += ",\"p_event_ts\":";
   body += u64ToString(eventTs);
-  body += ",\"dedupe_key\":";
+  body += ",\"p_dedupe_key\":";
   body += jsonString(dedupe);
-  body += ",\"payload\":";
+  body += ",\"p_payload\":";
   body += eventJson;
-  body += "}]";
+  body += "}";
 
   int code = 0;
-  const bool ok = httpRequest("POST", "device_events", body, &code, nullptr, "return=minimal");
+  const bool ok = httpRequest("POST", "rpc/device_insert_event", body, &code, nullptr);
   return ok || code == 409;
 }
 
@@ -283,22 +292,19 @@ bool CloudSyncService::syncStateSnapshot() {
   }
   const String stateJson = engine_->buildStateJson();
   String body;
-  body.reserve(stateJson.length() + 140);
-  body += "[{\"device_id\":";
+  body.reserve(stateJson.length() + 220);
+  body += "{\"p_device_id\":";
   body += jsonString(deviceId());
-  body += ",\"updated_epoch\":";
+  body += ",\"p_token\":";
+  body += jsonString(CLOUD_COMMAND_TOKEN);
+  body += ",\"p_updated_epoch\":";
   body += u64ToString(nowEpoch());
-  body += ",\"state\":";
+  body += ",\"p_state\":";
   body += stateJson;
-  body += "}]";
+  body += "}";
 
   int code = 0;
-  return httpRequest("POST",
-                     "device_states?on_conflict=device_id",
-                     body,
-                     &code,
-                     nullptr,
-                     "resolution=merge-duplicates,return=minimal");
+  return httpRequest("POST", "rpc/device_upsert_state", body, &code, nullptr);
 }
 
 void CloudSyncService::processRealtimeEventQueue() {
@@ -344,11 +350,10 @@ bool CloudSyncService::shouldPersistEventForCloud(const String &eventJson) const
 }
 
 bool CloudSyncService::validateCommandToken(JsonObjectConst command) const {
-  if (strlen(CLOUD_COMMAND_TOKEN) == 0) {
-    return true;
-  }
-  const char *token = command["token"] | "";
-  return strcmp(token, CLOUD_COMMAND_TOKEN) == 0;
+  (void)command;
+  // Commands are claimed only through device_claim_commands(), which validates
+  // CLOUD_COMMAND_TOKEN server-side before returning any rows.
+  return true;
 }
 
 bool CloudSyncService::commandHasOnlyAllowedKeys(JsonObjectConst command,
@@ -398,7 +403,7 @@ bool CloudSyncService::applyRemoteCommand(const String &commandId, JsonObjectCon
 
   const String type = command["type"] | "";
   if (type == "set_manual") {
-    if (!commandHasOnlyAllowedKeys(command, {"type", "channel", "mode", "token"})) {
+    if (!commandHasOnlyAllowedKeys(command, {"type", "channel", "mode"})) {
       if (resultMessage) *resultMessage = "Invalid manual command.";
       return false;
     }
@@ -418,7 +423,7 @@ bool CloudSyncService::applyRemoteCommand(const String &commandId, JsonObjectCon
   }
 
   if (type == "set_timer") {
-    if (!commandHasOnlyAllowedKeys(command, {"type", "channel", "durationMinutes", "durationSec", "target", "epoch", "token"})) {
+    if (!commandHasOnlyAllowedKeys(command, {"type", "channel", "durationMinutes", "durationSec", "target", "epoch"})) {
       if (resultMessage) *resultMessage = "Invalid timer command.";
       return false;
     }
@@ -434,6 +439,15 @@ bool CloudSyncService::applyRemoteCommand(const String &commandId, JsonObjectCon
         timeKeeper_->syncFromClient(epoch);
       }
     }
+    if (timeKeeper_ && !timeKeeper_->hasUserTime()) {
+      const uint64_t ntpEpoch = timeKeeper_->nowEpoch();
+      if (ntpEpoch >= 1700000000ULL) {
+        // ControlEngine intentionally requires the timer clock to be explicit.
+        // In ONLINE mode, NTP is the authoritative clock source, so seed the
+        // same user-time channel without involving any browser/local page.
+        timeKeeper_->syncFromClient(ntpEpoch);
+      }
+    }
     uint32_t durationMinutes = command["durationMinutes"] | 0;
     if (durationMinutes == 0 && command["durationSec"].is<uint32_t>()) {
       const uint32_t durationSec = command["durationSec"].as<uint32_t>();
@@ -443,7 +457,7 @@ bool CloudSyncService::applyRemoteCommand(const String &commandId, JsonObjectCon
   }
 
   if (type == "cancel_timer") {
-    if (!commandHasOnlyAllowedKeys(command, {"type", "channel", "token"})) {
+    if (!commandHasOnlyAllowedKeys(command, {"type", "channel"})) {
       if (resultMessage) *resultMessage = "Invalid cancel command.";
       return false;
     }
@@ -458,15 +472,73 @@ bool CloudSyncService::applyRemoteCommand(const String &commandId, JsonObjectCon
   }
 
   if (type == "set_energy_tracking") {
-    if (!commandHasOnlyAllowedKeys(command, {"type", "enabled", "token"}) || !command["enabled"].is<bool>()) {
+    if (!commandHasOnlyAllowedKeys(command, {"type", "enabled"}) || !command["enabled"].is<bool>()) {
       if (resultMessage) *resultMessage = "Invalid energy tracking command.";
       return false;
     }
     return engine_->setEnergyTrackingEnabled(command["enabled"].as<bool>(), resultMessage);
   }
 
+  if (type == "set_pir_mapping") {
+    if (!commandHasOnlyAllowedKeys(command, {"type", "mappings"})) {
+      if (resultMessage) *resultMessage = "Invalid PIR mapping command.";
+      return false;
+    }
+    JsonArrayConst mappingsJson = command["mappings"].as<JsonArrayConst>();
+    if (mappingsJson.isNull() || mappingsJson.size() != PIR_COUNT) {
+      if (resultMessage) *resultMessage = "Expected one mapping entry per PIR.";
+      return false;
+    }
+    std::vector<PIRMapping> mappings(PIR_COUNT);
+    for (size_t i = 0; i < PIR_COUNT; ++i) {
+      JsonObjectConst item = mappingsJson[i].as<JsonObjectConst>();
+      uint64_t relayMask = 0;
+      if (!item["relays"].isNull()) {
+        JsonArrayConst relays = item["relays"].as<JsonArrayConst>();
+        for (size_t relayIndex = 0; relayIndex < RELAY_COUNT; ++relayIndex) {
+          if (relays[relayIndex] | false) {
+            relayMask |= relayMaskForRelay(relayIndex);
+          }
+        }
+      } else if (!item["relayMask"].isNull()) {
+        relayMask = item["relayMask"].as<uint64_t>();
+      } else {
+        if (RELAY_COUNT > 0 && (item["relayA"] | false)) {
+          relayMask |= relayMaskForRelay(0);
+        }
+        if (RELAY_COUNT > 1 && (item["relayB"] | false)) {
+          relayMask |= relayMaskForRelay(1);
+        }
+      }
+      mappings[i].relayMask = relayMask & relayMaskForCount(RELAY_COUNT);
+    }
+    return engine_->setPirMapping(mappings, resultMessage);
+  }
+
+  if (type == "set_rated_power") {
+    if (!commandHasOnlyAllowedKeys(command, {"type", "channel", "powerW"})) {
+      if (resultMessage) *resultMessage = "Invalid rated power command.";
+      return false;
+    }
+    const int channelValue = command["channel"] | -1;
+    const float powerW = command["powerW"] | 0.0f;
+    if (channelValue < 0 || static_cast<size_t>(channelValue) >= RELAY_COUNT) {
+      if (resultMessage) *resultMessage = "Invalid relay index.";
+      return false;
+    }
+    return engine_->setRatedPower(static_cast<size_t>(channelValue), powerW, resultMessage);
+  }
+
+  if (type == "reset_consumption") {
+    if (!commandHasOnlyAllowedKeys(command, {"type"})) {
+      if (resultMessage) *resultMessage = "Invalid reset command.";
+      return false;
+    }
+    return engine_->resetConsumption(resultMessage);
+  }
+
   if (type == "get_state") {
-    if (!commandHasOnlyAllowedKeys(command, {"type", "token"})) {
+    if (!commandHasOnlyAllowedKeys(command, {"type"})) {
       if (resultMessage) *resultMessage = "Invalid state command.";
       return false;
     }
@@ -483,34 +555,35 @@ bool CloudSyncService::markRemoteCommand(const String &commandId, const char *st
   if (commandId.isEmpty() || !status) {
     return false;
   }
-  String body = "{\"status\":";
+  String body = "{\"p_device_id\":";
+  body += jsonString(deviceId());
+  body += ",\"p_token\":";
+  body += jsonString(CLOUD_COMMAND_TOKEN);
+  body += ",\"p_command_id\":";
+  body += jsonString(commandId);
+  body += ",\"p_status\":";
   body += jsonString(status);
-  if (strcmp(status, "done") == 0 || strcmp(status, "failed") == 0) {
-    body += ",\"processed_epoch\":";
-    body += u64ToString(nowEpoch());
-    body += ",\"result\":{\"ok\":";
-    body += ok ? "true" : "false";
-    body += ",\"msg\":";
-    body += jsonString(message);
-    body += "}";
-  }
+  body += ",\"p_ok\":";
+  body += ok ? "true" : "false";
+  body += ",\"p_message\":";
+  body += jsonString(message);
+  body += ",\"p_processed_epoch\":";
+  body += u64ToString(nowEpoch());
   body += "}";
-  String path = "remote_commands?id=eq.";
-  path += urlEncode(commandId);
-  path += "&device_id=eq.";
-  path += urlEncode(deviceId());
-  return httpRequest("PATCH", path, body, nullptr, nullptr, "return=minimal");
+  return httpRequest("POST", "rpc/device_finish_command", body, nullptr, nullptr);
 }
 
 void CloudSyncService::pollRemoteCommands() {
-  String path = "remote_commands?select=id,command&device_id=eq.";
-  path += urlEncode(deviceId());
-  path += "&status=eq.pending&order=created_at.asc&limit=";
-  path += String(CLOUD_MAX_COMMANDS_PER_POLL);
-
+  String body = "{\"p_device_id\":";
+  body += jsonString(deviceId());
+  body += ",\"p_token\":";
+  body += jsonString(CLOUD_COMMAND_TOKEN);
+  body += ",\"p_limit\":";
+  body += String(CLOUD_MAX_COMMANDS_PER_POLL);
+  body += "}";
   String response;
   int code = 0;
-  if (!httpRequest("GET", path, "", &code, &response) || code != 200 || response.isEmpty()) {
+  if (!httpRequest("POST", "rpc/device_claim_commands", body, &code, &response) || code != 200 || response.isEmpty()) {
     return;
   }
 
@@ -528,12 +601,6 @@ void CloudSyncService::pollRemoteCommands() {
     const String commandId = row["id"] | "";
     JsonObjectConst command = row["command"].as<JsonObjectConst>();
     if (commandId.isEmpty() || command.isNull()) {
-      continue;
-    }
-
-    // Mark first. If the network cannot reserve the command, do not execute it;
-    // this avoids duplicate timer/relay actions after transient reconnects.
-    if (!markRemoteCommand(commandId, "processing", false, "Processing")) {
       continue;
     }
 

@@ -18,9 +18,19 @@ constexpr uint32_t AUTH_LOCKOUT_SECONDS = 300;
 constexpr char AP_SSID[] = "tarshid";
 constexpr char AP_PASSWORD[] = "12345678";
 
-// Keep blank if no infrastructure Wi-Fi is available.
+// Keep blank if no infrastructure Wi-Fi is available. The build script can
+// inject WIFI_STA_SSID/WIFI_STA_PASSWORD for ONLINE mode without changing the
+// offline firmware defaults or local MAC-auth behavior.
+#ifndef WIFI_STA_SSID
+#define WIFI_STA_SSID ""
+#endif
+
+#ifndef WIFI_STA_PASSWORD
+#define WIFI_STA_PASSWORD ""
+#endif
+
 constexpr char STA_SSID[] = "";
-constexpr char STA_PASSWORD[] = "";
+constexpr char STA_PASSWORD[] = WIFI_STA_PASSWORD;
 
 constexpr RelayConfig RELAY_CONFIG[] = {
     {26, "Relay A", 60.0f},
@@ -83,8 +93,8 @@ constexpr uint8_t WATCHDOG_TIMEOUT_SECONDS = 12;
 #define CLOUD_DEVICE_ID ""
 #endif
 
-// Optional shared token expected inside remote command JSON. Keep empty only
-// when Supabase RLS/Edge Functions already enforce command authorization.
+// Required shared device token for Supabase RPC calls. It is never stored in
+// frontend code; the ESP uses it only to authenticate state/event/command RPCs.
 #ifndef CLOUD_COMMAND_TOKEN
 #define CLOUD_COMMAND_TOKEN ""
 #endif

@@ -34,6 +34,12 @@ enum class WiFiApRecoveryState : uint8_t {
   WAITING_FOR_AP_READY,
 };
 
+enum class NetworkMode : uint8_t {
+  UNKNOWN,
+  OFFLINE_LOCAL,
+  ONLINE_CLOUD,
+};
+
 // Keep Arduino SoftAP defaults for channel/max clients so only security
 // posture changes here (hidden SSID + client isolation).
 constexpr uint8_t AP_CHANNEL = 1;
@@ -58,10 +64,32 @@ typename std::enable_if<!WifiApConfigHasIsolate<T>::value, bool>::type enableDri
 }
 
 WiFiApRecoveryState gWiFiApRecoveryState = WiFiApRecoveryState::IDLE;
+NetworkMode gNetworkMode = NetworkMode::UNKNOWN;
 uint32_t gLastWiFiHealthCheckMs = 0;
 uint32_t gLastWiFiRecoveryMs = 0;
 uint32_t gWiFiRecoveryStateMs = 0;
+uint32_t gLastInternetProbeMs = 0;
 uint8_t gConsecutiveWiFiHealthFailures = 0;
+uint8_t gConsecutiveInternetFailures = 0;
+
+bool hasStaCredentials() {
+  return strlen(STA_SSID) > 0;
+}
+
+bool onlineModeAvailable() {
+  return hasStaCredentials() && gCloudSync.isConfigured();
+}
+
+const char *networkModeName(NetworkMode mode) {
+  switch (mode) {
+    case NetworkMode::OFFLINE_LOCAL:
+      return "OFFLINE_LOCAL";
+    case NetworkMode::ONLINE_CLOUD:
+      return "ONLINE_CLOUD";
+    default:
+      return "UNKNOWN";
+  }
+}
 
 bool applySoftApSecurityConfig() {
   wifi_config_t wifiConfig{};
@@ -108,7 +136,12 @@ String buildSystemEvent(const String &eventName, const String &message, const St
 }
 
 void pushSystemEvent(const String &eventName, const String &message, bool bufferIfOffline = false, bool isError = false) {
-  gWebPortal.enqueueEvent(buildSystemEvent(eventName, message, isError ? "ERROR" : "TIMER"), bufferIfOffline);
+  const String eventJson = buildSystemEvent(eventName, message, isError ? "ERROR" : "TIMER");
+  if (gNetworkMode == NetworkMode::ONLINE_CLOUD) {
+    gCloudSync.enqueueLocalEvent(eventJson);
+    return;
+  }
+  gWebPortal.enqueueEvent(eventJson, bufferIfOffline);
 }
 
 void initRuntimeDefaults() {
@@ -181,7 +214,6 @@ void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
 }
 
 void setupWiFi() {
-  WiFi.mode(WIFI_AP_STA);
   // Keep credentials/runtime Wi-Fi state in RAM only so reconnect attempts do
   // not generate extra flash churn or stale network state across brownouts.
   WiFi.persistent(false);
@@ -191,18 +223,125 @@ void setupWiFi() {
   WiFi.setAutoReconnect(true);
   WiFi.onEvent(onWiFiEvent);
 
-  const bool apOk = startSecureSoftAp();
-  if (apOk) {
-    Serial.printf("[WiFi] AP ready SSID=%s IP=%s\n", AP_SSID, WiFi.softAPIP().toString().c_str());
-  } else {
-    Serial.println("[WiFi] Failed to start AP mode.");
-  }
-
-  if (strlen(STA_SSID) > 0) {
+  if (hasStaCredentials()) {
+    // ONLINE mode probe starts from STA only. If internet/Supabase are not
+    // available, enterOfflineMode() starts the AP and local portal explicitly.
+    WiFi.mode(WIFI_STA);
     WiFi.begin(STA_SSID, STA_PASSWORD);
     Serial.printf("[WiFi] Connecting STA to %s\n", STA_SSID);
   } else {
-    Serial.println("[WiFi] STA credentials empty; running AP-only until configured.");
+    WiFi.mode(WIFI_OFF);
+    Serial.println("[WiFi] STA credentials empty; offline AP mode will start.");
+  }
+}
+
+bool probeInternetAccess() {
+  if (WiFi.status() != WL_CONNECTED) {
+    return false;
+  }
+  IPAddress resolved;
+  // DNS resolution is a lightweight internet reachability check. It is called
+  // on a slow cadence only, never from relay/PIR timing paths.
+  return WiFi.hostByName("pool.ntp.org", resolved) == 1 && resolved != IPAddress(0, 0, 0, 0);
+}
+
+void enterOfflineMode() {
+  if (gNetworkMode == NetworkMode::OFFLINE_LOCAL && gWebPortal.isRunning() &&
+      WiFi.softAPIP() != IPAddress(0, 0, 0, 0)) {
+    return;
+  }
+
+  const bool keepSta = hasStaCredentials();
+  WiFi.mode(keepSta ? WIFI_AP_STA : WIFI_AP);
+  WiFi.persistent(false);
+  WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);
+  const bool apOk = startSecureSoftAp();
+  if (apOk) {
+    Serial.printf("[Mode] OFFLINE_LOCAL AP ready SSID=%s IP=%s\n",
+                  AP_SSID,
+                  WiFi.softAPIP().toString().c_str());
+  } else {
+    Serial.println("[Mode] OFFLINE_LOCAL failed to start SoftAP.");
+  }
+  if (keepSta && WiFi.status() != WL_CONNECTED) {
+    WiFi.begin(STA_SSID, STA_PASSWORD);
+  }
+
+  gNetworkMode = NetworkMode::OFFLINE_LOCAL;
+  gWebPortal.begin(&gControl, &gStorage, &gTimeKeeper);
+  pushSystemEvent("mode.offline", "Offline local AP mode active.");
+}
+
+void enterOnlineMode() {
+  if (!onlineModeAvailable() || WiFi.status() != WL_CONNECTED) {
+    enterOfflineMode();
+    return;
+  }
+
+  if (gNetworkMode == NetworkMode::ONLINE_CLOUD && !gWebPortal.isRunning() &&
+      WiFi.getMode() == WIFI_STA) {
+    return;
+  }
+
+  // ONLINE mode must not expose local offline pages, captive DNS, WebSocket, or
+  // MAC-auth routes. Stop the portal first, then remove SoftAP completely.
+  gWebPortal.end();
+  WiFi.softAPdisconnect(true);
+  WiFi.mode(WIFI_STA);
+  WiFi.persistent(false);
+  WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);
+  if (WiFi.status() != WL_CONNECTED) {
+    WiFi.begin(STA_SSID, STA_PASSWORD);
+  }
+
+  gNetworkMode = NetworkMode::ONLINE_CLOUD;
+  gConsecutiveInternetFailures = 0;
+  gCloudSync.requestStateSync();
+  gTimeKeeper.trySyncFromNtp(true);
+  pushSystemEvent("mode.online", "Online cloud mode active.");
+  Serial.println("[Mode] ONLINE_CLOUD active; SoftAP and local portal are disabled.");
+}
+
+void maintainNetworkMode() {
+  constexpr uint32_t INTERNET_PROBE_INTERVAL_MS = 30000UL;
+  constexpr uint8_t INTERNET_FAILURE_THRESHOLD = 3;
+
+  if (!onlineModeAvailable()) {
+    enterOfflineMode();
+    return;
+  }
+
+  const uint32_t nowMs = millis();
+  if (gNetworkMode == NetworkMode::UNKNOWN) {
+    if (probeInternetAccess()) {
+      enterOnlineMode();
+    } else {
+      enterOfflineMode();
+    }
+    gLastInternetProbeMs = nowMs;
+    return;
+  }
+
+  if (nowMs - gLastInternetProbeMs < INTERNET_PROBE_INTERVAL_MS) {
+    return;
+  }
+  gLastInternetProbeMs = nowMs;
+
+  const bool internetOk = probeInternetAccess();
+  if (internetOk) {
+    gConsecutiveInternetFailures = 0;
+    if (gNetworkMode != NetworkMode::ONLINE_CLOUD) {
+      enterOnlineMode();
+    }
+    return;
+  }
+
+  if (gNetworkMode == NetworkMode::ONLINE_CLOUD &&
+      ++gConsecutiveInternetFailures >= INTERNET_FAILURE_THRESHOLD) {
+    Serial.println("[Mode] Internet/cloud reachability lost; falling back to offline AP.");
+    enterOfflineMode();
   }
 }
 
@@ -211,12 +350,29 @@ void maintainWiFi() {
   static uint32_t lastStaReconnectMs = 0;
   const uint32_t nowMs = millis();
 
+  if (gNetworkMode == NetworkMode::ONLINE_CLOUD) {
+    if (WiFi.getMode() != WIFI_STA) {
+      WiFi.softAPdisconnect(true);
+      WiFi.mode(WIFI_STA);
+    }
+    if (hasStaCredentials() && WiFi.status() != WL_CONNECTED &&
+        (nowMs - lastStaReconnectMs) >= 10000UL) {
+      lastStaReconnectMs = nowMs;
+      WiFi.reconnect();
+      if (WiFi.status() != WL_CONNECTED) {
+        WiFi.disconnect(false, false);
+        WiFi.begin(STA_SSID, STA_PASSWORD);
+      }
+    }
+    return;
+  }
+
   if (nowMs - lastApCheckMs >= 2500UL) {
     lastApCheckMs = nowMs;
     if (WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) {
       // Re-assert the AP mode before restart so the captive portal and websocket
       // server stay reachable even after transient Wi-Fi stack faults.
-      WiFi.mode(WIFI_AP_STA);
+      WiFi.mode(hasStaCredentials() ? WIFI_AP_STA : WIFI_AP);
       WiFi.setSleep(false);
       if (startSecureSoftAp()) {
         pushSystemEvent("wifi.ap_restarted", "SoftAP restarted automatically after a connection failure.", false, true);
@@ -224,7 +380,7 @@ void maintainWiFi() {
     }
   }
 
-  if (strlen(STA_SSID) > 0 && WiFi.status() != WL_CONNECTED && (nowMs - lastStaReconnectMs) >= 10000UL) {
+  if (hasStaCredentials() && WiFi.status() != WL_CONNECTED && (nowMs - lastStaReconnectMs) >= 10000UL) {
     lastStaReconnectMs = nowMs;
     // Retry STA reconnection without blocking the network task. A soft reconnect
     // is attempted first, then a full begin() refresh if the station is still down.
@@ -253,6 +409,9 @@ bool isWiFiApHealthy() {
 }
 
 void startWiFiApRecovery() {
+  if (gNetworkMode != NetworkMode::OFFLINE_LOCAL) {
+    return;
+  }
   if (gWiFiApRecoveryState != WiFiApRecoveryState::IDLE) {
     return;
   }
@@ -272,6 +431,10 @@ void startWiFiApRecovery() {
 }
 
 void processWiFiApRecovery() {
+  if (gNetworkMode != NetworkMode::OFFLINE_LOCAL) {
+    gWiFiApRecoveryState = WiFiApRecoveryState::IDLE;
+    return;
+  }
   const uint32_t nowMs = millis();
 
   if (gWiFiApRecoveryState == WiFiApRecoveryState::WAITING_FOR_WIFI_OFF) {
@@ -279,12 +442,12 @@ void processWiFiApRecovery() {
       return;
     }
 
-    WiFi.mode(WIFI_AP_STA);
+    WiFi.mode(hasStaCredentials() ? WIFI_AP_STA : WIFI_AP);
     WiFi.persistent(false);
     WiFi.setSleep(false);
     WiFi.setAutoReconnect(true);
     startSecureSoftAp();
-    if (strlen(STA_SSID) > 0) {
+    if (hasStaCredentials()) {
       WiFi.begin(STA_SSID, STA_PASSWORD);
     }
 
@@ -317,6 +480,10 @@ void checkWiFiHealth() {
   constexpr uint32_t WIFI_HEALTH_CHECK_INTERVAL_MS = 5000UL;
   constexpr uint32_t WIFI_RECOVERY_COOLDOWN_MS = 20000UL;
   constexpr uint8_t WIFI_HEALTH_FAILURE_THRESHOLD = 2;
+
+  if (gNetworkMode != NetworkMode::OFFLINE_LOCAL) {
+    return;
+  }
 
   processWiFiApRecovery();
   if (gWiFiApRecoveryState != WiFiApRecoveryState::IDLE) {
@@ -374,10 +541,15 @@ void networkTask(void *parameter) {
   esp_task_wdt_add(NULL);
   uint32_t lastHousekeeping = 0;
   while (true) {
-    gWebPortal.loop();
+    maintainNetworkMode();
+    if (gNetworkMode == NetworkMode::OFFLINE_LOCAL) {
+      gWebPortal.loop();
+    }
     maintainWiFi();
-    checkWiFiHealth();
-    gTimeKeeper.trySyncFromNtp();
+    if (gNetworkMode == NetworkMode::OFFLINE_LOCAL) {
+      checkWiFiHealth();
+    }
+    gTimeKeeper.trySyncFromNtp(gNetworkMode == NetworkMode::ONLINE_CLOUD);
     gTimeKeeper.maybePersistSyncPoint();
 
     const uint32_t nowMs = millis();
@@ -396,7 +568,9 @@ void cloudTask(void *parameter) {
   while (true) {
     // Cloud sync is intentionally isolated from the local network task so slow
     // Supabase HTTP/retry work cannot stall WebServer/WebSocket handling.
-    gCloudSync.loop();
+    if (gNetworkMode == NetworkMode::ONLINE_CLOUD) {
+      gCloudSync.loop();
+    }
     esp_task_wdt_reset();
     vTaskDelay(pdMS_TO_TICKS(CLOUD_TASK_PERIOD_MS));
   }
@@ -452,22 +626,30 @@ void setup() {
 
   gTimeKeeper.begin(gStorage.prefs());
 
-  setupWiFi();
-  // Give SoftAP a short time to obtain its IP before starting captive DNS/server.
-  const uint32_t apWaitStart = millis();
-  while (WiFi.softAPIP() == IPAddress(0, 0, 0, 0) && (millis() - apWaitStart) < 2000UL) {
-    delay(10);
-  }
-
   initWatchdog();
 
   gControl.begin(&gRuntime, &gStorage, &gTimeKeeper, gStateMutex);
+  setupWiFi();
   gCloudSync.begin(&gControl, &gStorage, &gTimeKeeper);
-  gWebPortal.begin(&gControl, &gStorage, &gTimeKeeper);
   gControl.setEventCallback([](const String &json, bool bufferIfOffline) {
-    gWebPortal.enqueueEvent(json, bufferIfOffline);
-    gCloudSync.enqueueLocalEvent(json);
+    if (gNetworkMode == NetworkMode::ONLINE_CLOUD) {
+      gCloudSync.enqueueLocalEvent(json);
+    } else {
+      gWebPortal.enqueueEvent(json, bufferIfOffline);
+    }
   });
+
+  if (onlineModeAvailable()) {
+    const uint32_t staWaitStart = millis();
+    while (WiFi.status() != WL_CONNECTED && (millis() - staWaitStart) < 8000UL) {
+      delay(100);
+    }
+  }
+  if (onlineModeAvailable() && probeInternetAccess()) {
+    enterOnlineMode();
+  } else {
+    enterOfflineMode();
+  }
 
   pushSystemEvent("system.boot", "System boot completed.");
   gControl.refreshOutputs();

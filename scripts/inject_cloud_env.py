@@ -33,3 +33,11 @@ if cloud_enabled:
     command_token = os.environ.get("CLOUD_COMMAND_TOKEN") or os.environ.get("SUPABASE_COMMAND_TOKEN") or ""
     if command_token:
         _string_define("CLOUD_COMMAND_TOKEN", command_token)
+
+# ONLINE mode is opt-in at build time. Leaving these blank keeps the existing
+# offline/AP firmware behavior exactly as before.
+sta_ssid = os.environ.get("WIFI_STA_SSID") or os.environ.get("STA_SSID") or ""
+sta_password = os.environ.get("WIFI_STA_PASSWORD") or os.environ.get("STA_PASSWORD") or ""
+if sta_ssid:
+    _string_define("WIFI_STA_SSID", sta_ssid)
+    _string_define("WIFI_STA_PASSWORD", sta_password)

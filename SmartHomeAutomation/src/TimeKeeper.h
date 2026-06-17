@@ -11,7 +11,7 @@ class TimeKeeper {
   bool syncFromHms(int hour, int minute, int second);
   bool syncFromDateTime(int year, int month, int day, int hour, int minute, int second);
   bool setTimezoneOffsetMinutes(int32_t offsetMinutes);
-  bool trySyncFromNtp();
+  bool trySyncFromNtp(bool force = false);
   uint64_t nowEpoch() const;
   uint64_t nowUserEpoch() const;
   bool hasValidTime() const;

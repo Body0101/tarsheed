@@ -14,6 +14,7 @@ class CloudSyncService {
   void begin(ControlEngine *engine, StorageLayer *storage, TimeKeeper *timeKeeper);
   void loop();
   bool enqueueLocalEvent(const String &eventJson);
+  void requestStateSync();
   bool isConfigured() const;
 
  private:

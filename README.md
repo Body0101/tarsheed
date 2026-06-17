@@ -1,153 +1,78 @@
-# ESP32 Smart Home Automation (2 Relays + 3 PIR)
+# Tarshid ESP32 Smart Home
 
-This project delivers a conflict-safe smart home controller for ESP32 with:
+Tarshid is an ESP32 smart-home controller with two separate operating modes:
 
-- AP + STA Wi-Fi operation
-- Automatic mode when no web clients are connected
-- Manual/web mode with priority conflict resolution
-- WebSocket live updates and offline notification buffering
-- Persistent settings (Preferences) + logs (LittleFS)
-- FreeRTOS split tasks + watchdog safety
+- Offline ESP Local Mode: ESP SoftAP, local pages, local MAC authentication, NVS/LittleFS storage.
+- Online Server Mode: infrastructure WiFi, AP disabled, GitHub Pages dashboard, Supabase Auth/database, NTP time, realtime sync.
 
-## 1) Folder Layout
+The ESP32 remains the physical authority for relays, PIR sensors, timers, Night Lock, and energy/timer state in both modes.
 
+## Main Documentation
+
+- `SYSTEM_ARCHITECTURE.md` - complete architecture and file ownership
+- `ONLINE_OFFLINE_GUIDE.md` - runtime behavior and deployment guide
+- `SERVER_SETUP_GUIDE.md` - Supabase, RLS, Realtime, and GitHub Pages setup
+- `AUTH_FLOW.md` - offline MAC auth and online Supabase auth separation
+
+## Project Layout
+
+```text
+SmartHomeAutomation/
+  data/                 Offline ESP LittleFS pages
+  src/                  ESP32 firmware
+online/                 GitHub Pages static frontend
+supabase/               Supabase SQL schema
+scripts/                PlatformIO build-time environment injection
+.github/workflows/      GitHub Pages deployment workflow
 ```
-smart-home-automation-esp32/
-  README.md
-  SmartHomeAutomation/
-    SmartHomeAutomation.ino
-    Config.h
-    SystemTypes.h
-    Utils.h
-    TimeKeeper.h/.cpp
-    StorageLayer.h/.cpp
-    ControlEngine.h/.cpp
-    WebPortal.h/.cpp
-    data/
-      index.html
+
+## Build Firmware
+
+Offline/local build:
+
+```powershell
+platformio run
+platformio run --target upload
+platformio run --target uploadfs
 ```
 
-## 2) Dependencies
+Online-capable build:
 
-Install these Arduino libraries:
+```powershell
+$env:WIFI_STA_SSID="YourWiFi"
+$env:WIFI_STA_PASSWORD="YourWiFiPassword"
+$env:SUPABASE_URL="https://YOUR_PROJECT_REF.supabase.co"
+$env:SUPABASE_ANON_KEY="your-publishable-or-anon-key"
+$env:CLOUD_DEVICE_ID="esp32-main"
+$env:CLOUD_COMMAND_TOKEN="strong-random-device-token"
+platformio run
+```
 
-- `ArduinoJson`
-- `WebSockets` by Markus Sattler
-- `LittleFS` (ships with ESP32 core)
-- `Preferences` (ships with ESP32 core)
+If the online variables are missing or internet is unavailable, the firmware runs offline local mode.
 
-Board package: `esp32` (Arduino core for ESP32).
+## Online Frontend
 
-## 3) Pin Mapping (default)
+The online dashboard is static and lives in `online/`.
 
-Set in `SmartHomeAutomation/Config.h`:
+GitHub Pages deployment is handled by `.github/workflows/deploy-online.yml`. It writes `online/config.js` from repository secrets and publishes the `online/` directory.
 
-- Relays:
-  - Relay A -> GPIO26
-  - Relay B -> GPIO27
-- PIR:
-  - PIR A -> GPIO32 (Relay A)
-  - PIR B -> GPIO33 (Relay B)
-  - PIR C -> GPIO25 (Relay A + Relay B)
+Required GitHub secrets:
 
-Adjust pin numbers and sensor mapping as needed.
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
 
-## 4) Build + Upload Steps
+## Supabase
 
-1. Open `SmartHomeAutomation/SmartHomeAutomation.ino` in Arduino IDE.
-2. Choose your ESP32 board and COM port.
-3. Upload filesystem first (LittleFS upload tool) so `/index.html` is available.
-4. Upload firmware.
-5. Connect to AP `ESP32-SmartHome` (password `SmartHome123`) or your STA network (if configured).
-6. Open `http://192.168.4.1` (AP mode default).
+Run `supabase/smart_home_schema.sql` in the Supabase SQL Editor. It creates:
 
-## 5) Core Logic
+- profiles
+- devices
+- memberships
+- device states
+- device events
+- remote commands
+- RLS policies
+- token-checked RPC
+- realtime publication entries
 
-### Modes
-
-- **Automatic mode**: `connectedClients == 0`
-  - PIR triggers can extend relay hold windows by 5 minutes.
-- **Web/manual mode**: at least one active client
-  - PIR triggers are ignored.
-  - Manual and timer controls remain active.
-
-### Priority and Conflict Rules
-
-Priority is enforced per relay:
-
-`MANUAL > TIMER > PIR`
-
-Additional safety rules:
-
-- Night blocks ON actions (day window = 06:00-18:00).
-- Interlock (optional): if both relays would be ON, one is forced OFF.
-
-### Timer Lifecycle Optimization
-
-Timers store only:
-
-- `active`
-- `targetState`
-- `endEpoch`
-
-No continuous flash writes for remaining time. Remaining time is computed from current epoch.
-
-### Persistence
-
-- **Preferences**:
-  - manual mode per relay
-  - timer plans
-  - relay state/source
-  - interlock setting
-  - last cleanup marker
-- **LittleFS**:
-  - event log file (`/logs.jsonl`)
-  - pending notifications buffer (`/pending.jsonl`)
-
-Daily cleanup keeps recent data (`LOG_RETENTION_DAYS`) and trims file size caps.
-
-## 6) Time Synchronization
-
-Time sources:
-
-1. NTP (when STA is connected)
-2. Client `time_sync` WebSocket packet on each connect
-
-When time updates, timer remaining time naturally re-aligns because end timestamps are absolute.
-
-## 7) WebSocket Contract
-
-### Client -> ESP32
-
-- `{"type":"time_sync","epoch":1710000000}`
-- `{"type":"set_manual","channel":0,"mode":"ON|OFF|AUTO"}`
-- `{"type":"set_timer","channel":1,"durationSec":300,"target":"ON|OFF"}`
-- `{"type":"cancel_timer","channel":1}`
-- `{"type":"set_interlock","enabled":true}`
-- `{"type":"get_state"}`
-
-### ESP32 -> Client
-
-- `state_snapshot`
-- `command_ack`
-- `relay.changed`
-- `pir.motion`
-- `timer.started`
-- `timer.ended`
-- `manual.changed`
-- `interlock.changed`
-- connectivity + storage events
-
-## 8) FreeRTOS + Watchdog
-
-- **Core 1 task**: PIR processing + control evaluation + relay actuation
-- **Core 0 task**: Web server + WebSocket + queue handling + housekeeping
-
-Task watchdog is enabled to auto-reset on hangs.
-
-## 9) Notes for Real Deployment
-
-- Use opto-isolated relay module and proper power rails.
-- Validate relay active HIGH/LOW logic for your hardware and invert writes if needed.
-- Replace demo AP credentials before production.
-- Consider HTTPS proxy gateway if exposing beyond local network.
+The browser uses Supabase Auth and RLS. The ESP uses token-checked RPC. Offline MAC users are not stored in Supabase.

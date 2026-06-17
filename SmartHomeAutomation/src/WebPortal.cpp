@@ -355,21 +355,34 @@ void WebPortal::begin(ControlEngine *engine, StorageLayer *storage, TimeKeeper *
   engine_ = engine;
   storage_ = storage;
   timeKeeper_ = timeKeeper;
-  outboundQueue_ = xQueueCreate(48, sizeof(QueuedEvent));
-  inboundQueue_ = xQueueCreate(24, sizeof(QueuedCommand));
-  contextMutex_ = xSemaphoreCreateMutex();
+
+  if (!initialized_)
+  {
+    outboundQueue_ = xQueueCreate(48, sizeof(QueuedEvent));
+    inboundQueue_ = xQueueCreate(24, sizeof(QueuedCommand));
+    contextMutex_ = xSemaphoreCreateMutex();
+
+    const char *collectedHeaders[] = {SECURITY_HEADER_SIGNATURE};
+    server_.collectHeaders(collectedHeaders, 1);
+    setupRoutes();
+    initialized_ = true;
+  }
+
+  if (running_)
+  {
+    return;
+  }
+
   clients_.fill(false);
   clientMacs_.fill("");
   connectedClients_ = 0;
   lastClientRefreshMs_ = 0;
   stateBroadcastPending_ = false;
-
-  const char *collectedHeaders[] = {SECURITY_HEADER_SIGNATURE};
-  server_.collectHeaders(collectedHeaders, 1);
-  setupRoutes();
-  server_.begin();
+  captivePortalEnabled_ = false;
+  captivePortalIp_ = IPAddress(0, 0, 0, 0);
 
   instance_ = this;
+  server_.begin();
   socket_.begin();
 
   // ACCESS CONTROL - Load user accounts from storage
@@ -378,10 +391,43 @@ void WebPortal::begin(ControlEngine *engine, StorageLayer *storage, TimeKeeper *
   socket_.enableHeartbeat(15000, 3500, 2);
   socket_.onEvent(onWsEventStatic);
   beginCaptivePortal();
+  running_ = true;
+}
+
+void WebPortal::end()
+{
+  if (!initialized_ || !running_)
+  {
+    return;
+  }
+
+  // ONLINE mode must not expose any offline HTTP/WebSocket/MAC-auth surface.
+  // Stop listeners in-place and keep queues allocated to avoid heap churn if
+  // the device later falls back to offline AP mode.
+  dnsServer_.stop();
+  captivePortalEnabled_ = false;
+  captivePortalIp_ = IPAddress(0, 0, 0, 0);
+  for (uint8_t i = 0; i < WS_MAX_CLIENTS; ++i)
+  {
+    socket_.disconnect(i);
+  }
+  socket_.close();
+  server_.stop();
+
+  clients_.fill(false);
+  clientMacs_.fill("");
+  connectedClients_ = 0;
+  stateBroadcastPending_ = false;
+  updateClientCountInEngine();
+  running_ = false;
 }
 
 void WebPortal::recoverAfterAccessPointRestart()
 {
+  if (!running_)
+  {
+    return;
+  }
   clients_.fill(false);
   clientMacs_.fill("");
   connectedClients_ = 0;
@@ -396,6 +442,10 @@ void WebPortal::recoverAfterAccessPointRestart()
 
 void WebPortal::loop()
 {
+  if (!running_)
+  {
+    return;
+  }
   ensureCaptivePortal();
   if (captivePortalEnabled_)
   {
@@ -413,9 +463,11 @@ void WebPortal::loop()
   processPendingStateBroadcast();
 }
 
+bool WebPortal::isRunning() const { return running_; }
+
 bool WebPortal::enqueueEvent(const String &eventJson, bool bufferIfOffline)
 {
-  if (!outboundQueue_)
+  if (!running_ || !outboundQueue_)
   {
     return false;
   }
